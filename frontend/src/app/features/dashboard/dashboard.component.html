@@ -1,0 +1,69 @@
+<div *ngIf="loading()">
+  <mat-spinner style="margin: 48px auto"></mat-spinner>
+</div>
+
+<div *ngIf="error()">
+  <p style="color:red">{{ error() }}</p>
+</div>
+
+<ng-container *ngIf="stats() as s">
+  <!-- Stat Cards -->
+  <div class="stat-cards">
+    <mat-card>
+      <mat-card-content>
+        <div class="stat-label">Total Active Jobs</div>
+        <div class="stat-value">{{ s.totalActiveJobs | number }}</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card>
+      <mat-card-content>
+        <div class="stat-label">Companies Hiring</div>
+        <div class="stat-value">{{ s.totalCompanies | number }}</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card>
+      <mat-card-content>
+        <div class="stat-label">Remote %</div>
+        <div class="stat-value">{{ remotePercent }}%</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card>
+      <mat-card-content>
+        <div class="stat-label">Added Today</div>
+        <div class="stat-value">{{ s.activeToday | number }}</div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <!-- Charts Row 1 -->
+  <div class="charts-row">
+    <mat-card class="chart-card">
+      <mat-card-header><mat-card-title>Top Companies Hiring</mat-card-title></mat-card-header>
+      <mat-card-content>
+        <app-top-companies-chart [data]="s.topCompanies" />
+      </mat-card-content>
+    </mat-card>
+    <mat-card class="chart-card">
+      <mat-card-header><mat-card-title>Jobs by Seniority</mat-card-title></mat-card-header>
+      <mat-card-content>
+        <app-seniority-chart [data]="s.jobsBySeniority" />
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <!-- Departments Chart -->
+  <mat-card class="chart-card full-width">
+    <mat-card-header><mat-card-title>Top Departments</mat-card-title></mat-card-header>
+    <mat-card-content>
+      <app-departments-chart [data]="s.topDepartments" />
+    </mat-card-content>
+  </mat-card>
+
+  <!-- AI Chat -->
+  <mat-card class="full-width" style="margin-top: 24px;">
+    <mat-card-header><mat-card-title>AI Insights Chat</mat-card-title></mat-card-header>
+    <mat-card-content>
+      <app-ai-chat />
+    </mat-card-content>
+  </mat-card>
+</ng-container>

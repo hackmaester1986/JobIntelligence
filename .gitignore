@@ -1,0 +1,96 @@
+######################################
+# .NET / C#
+######################################
+
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+*.dll
+*.exe
+*.out
+*.app
+*.pdb
+
+# ASP.NET
+*.runtimeconfig.json
+*.deps.json
+
+# Logs
+logs/
+*.log
+
+######################################
+# Visual Studio / VS Code
+######################################
+
+.vs/
+.vscode/
+*.code-workspace
+
+######################################
+# NuGet
+######################################
+
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+######################################
+# Environment files
+######################################
+
+.env
+.env.*
+
+######################################
+# Angular / Node
+######################################
+
+node_modules/
+dist/
+.tmp/
+out-tsc/
+.angular/
+
+# Angular cache
+.cache/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+######################################
+# OS files
+######################################
+
+.DS_Store
+Thumbs.db
+
+######################################
+# Docker
+######################################
+
+docker-compose.override.yml
+*.tar
+*.gz
+
+######################################
+# Coverage / Testing
+######################################
+
+coverage/
+TestResults/
+
+######################################
+# Misc
+######################################
+
+*.swp
+*.tmp

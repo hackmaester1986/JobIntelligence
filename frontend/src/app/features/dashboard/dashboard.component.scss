@@ -1,0 +1,24 @@
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-label { font-size: 14px; color: rgba(0,0,0,.54); margin-bottom: 8px; }
+.stat-value { font-size: 32px; font-weight: 600; }
+
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.chart-card { margin-bottom: 0; }
+.full-width { margin-bottom: 24px; }
+
+@media (max-width: 900px) {
+  .stat-cards { grid-template-columns: 1fr 1fr; }
+  .charts-row { grid-template-columns: 1fr; }
+}

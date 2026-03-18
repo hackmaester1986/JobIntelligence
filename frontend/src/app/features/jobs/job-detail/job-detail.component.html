@@ -1,0 +1,28 @@
+<a mat-button routerLink="/jobs">&larr; Back to Jobs</a>
+
+<div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
+
+<ng-container *ngIf="job() as j">
+  <mat-card style="margin-top: 16px">
+    <mat-card-header>
+      <mat-card-title>{{ j.title }}</mat-card-title>
+      <mat-card-subtitle>{{ j.companyName }} · {{ j.locationRaw }}</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <p *ngIf="j.department"><strong>Department:</strong> {{ j.department }}</p>
+      <p *ngIf="j.seniorityLevel"><strong>Seniority:</strong> {{ j.seniorityLevel }}</p>
+      <p *ngIf="j.employmentType"><strong>Type:</strong> {{ j.employmentType }}</p>
+      <p>
+        <span *ngIf="j.isRemote" class="chip remote">Remote</span>
+        <span *ngIf="j.isHybrid" class="chip hybrid">Hybrid</span>
+      </p>
+      <p *ngIf="j.salaryDisclosed && j.salaryMin">
+        <strong>Salary:</strong> {{ j.salaryCurrency }} {{ j.salaryMin | number }} – {{ j.salaryMax | number }} / {{ j.salaryPeriod }}
+      </p>
+      <div *ngIf="j.description" class="description" [innerHTML]="j.description"></div>
+    </mat-card-content>
+    <mat-card-actions *ngIf="j.applyUrl">
+      <a mat-raised-button color="primary" [href]="j.applyUrl" target="_blank">Apply Now</a>
+    </mat-card-actions>
+  </mat-card>
+</ng-container>

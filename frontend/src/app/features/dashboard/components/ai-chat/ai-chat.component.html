@@ -1,0 +1,33 @@
+<div class="chat-container">
+  <div class="messages" #messagesContainer>
+    <div *ngIf="messages().length === 0" class="empty-state">
+      Ask me about job trends, top companies, seniority breakdown, or any job market insights!
+    </div>
+    <div *ngFor="let msg of messages()"
+         class="message"
+         [ngClass]="msg.role === 'user' ? 'user' : 'assistant'">
+      <div class="bubble">{{ msg.content }}</div>
+    </div>
+    <div *ngIf="loading()" class="message assistant">
+      <div class="bubble thinking">
+        <mat-spinner diameter="20"></mat-spinner>
+        <span>Thinking...</span>
+      </div>
+    </div>
+  </div>
+  <div class="input-row">
+    <mat-form-field appearance="outline" class="input-field">
+      <input matInput
+             placeholder="Ask about job trends, top companies, seniority..."
+             [value]="inputText()"
+             (input)="inputText.set($any($event.target).value)"
+             (keydown)="onKeyDown($event)"
+             [disabled]="loading()" />
+    </mat-form-field>
+    <button mat-raised-button color="primary"
+            (click)="send()"
+            [disabled]="!inputText().trim() || loading()">
+      Send
+    </button>
+  </div>
+</div>

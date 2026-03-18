@@ -1,0 +1,13 @@
+.search-bar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+.total { color: rgba(0,0,0,.54); margin-bottom: 16px; }
+.jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.job-card { cursor: pointer; transition: box-shadow .2s; }
+.job-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+h3 { margin: 0 0 4px; font-size: 16px; }
+.company { color: #3F51B5; margin: 0 0 4px; font-weight: 500; }
+.meta { color: rgba(0,0,0,.54); font-size: 13px; margin: 0 0 8px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+.chip.remote { background: #e3f2fd; color: #1565c0; }
+.chip.hybrid { background: #e8f5e9; color: #2e7d32; }
+.chip.source { background: #f3e5f5; color: #6a1b9a; }

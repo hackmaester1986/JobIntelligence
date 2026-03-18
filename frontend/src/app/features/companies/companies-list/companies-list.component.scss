@@ -1,0 +1,11 @@
+.search-bar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+.total { color: rgba(0,0,0,.54); margin-bottom: 16px; }
+.companies-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.company-card { cursor: pointer; transition: box-shadow .2s; }
+.company-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.card-inner { display: flex; align-items: center; gap: 12px; }
+.logo { width: 48px; height: 48px; object-fit: contain; border-radius: 4px; }
+.info { flex: 1; }
+h3 { margin: 0 0 4px; font-size: 15px; }
+.meta { color: rgba(0,0,0,.54); font-size: 13px; margin: 0 0 6px; }
+.jobs-badge { background: #3F51B5; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
