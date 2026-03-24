@@ -3,30 +3,112 @@
 <div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
 
 <ng-container *ngIf="company() as c">
-  <mat-card style="margin-top: 16px; margin-bottom: 24px">
+  <mat-card class="header-card">
     <mat-card-header>
       <img mat-card-avatar *ngIf="c.logoUrl" [src]="c.logoUrl" [alt]="c.canonicalName" style="object-fit:contain" />
       <mat-card-title>{{ c.canonicalName }}</mat-card-title>
-      <mat-card-subtitle>{{ c.activeJobCount }} open positions</mat-card-subtitle>
+      <mat-card-subtitle>
+        <span *ngIf="c.industry">{{ c.industry }}</span>
+        <span *ngIf="c.industry && c.headquartersCity"> &middot; </span>
+        <span *ngIf="c.headquartersCity">{{ c.headquartersCity }}<span *ngIf="c.headquartersCountry">, {{ c.headquartersCountry }}</span></span>
+        <span *ngIf="c.employeeCountRange"> &middot; {{ c.employeeCountRange }}</span>
+      </mat-card-subtitle>
     </mat-card-header>
-    <mat-card-content>
-      <p *ngIf="c.industry"><strong>Industry:</strong> {{ c.industry }}</p>
-      <p *ngIf="c.employeeCountRange"><strong>Size:</strong> {{ c.employeeCountRange }}</p>
-      <p *ngIf="c.headquartersCity"><strong>HQ:</strong> {{ c.headquartersCity }}<span *ngIf="c.headquartersCountry">, {{ c.headquartersCountry }}</span></p>
-    </mat-card-content>
+    <mat-card-actions>
+      <a mat-raised-button color="primary" [routerLink]="['/companies', c.id, 'jobs']">
+        Open Positions ({{ c.activeJobCount }})
+      </a>
+    </mat-card-actions>
   </mat-card>
 
-  <h2>Open Positions ({{ jobs().length }})</h2>
-  <div class="jobs-grid">
-    <mat-card *ngFor="let job of jobs()" class="job-card" [routerLink]="['/jobs', job.id]">
+  <h2 class="section-title">Hiring Stats</h2>
+  <div class="stats-grid">
+    <mat-card class="stat-card">
       <mat-card-content>
-        <h3>{{ job.title }}</h3>
-        <p class="meta">
-          <span *ngIf="job.department">{{ job.department }}</span>
-          <span *ngIf="job.seniorityLevel"> · {{ job.seniorityLevel }}</span>
-          <span *ngIf="job.locationRaw"> · {{ job.locationRaw }}</span>
-        </p>
-        <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+        <div class="stat-value">{{ c.activeJobCount }}</div>
+        <div class="stat-label">Active Postings</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <div class="stat-value">{{ c.removedJobCount }}</div>
+        <div class="stat-label">Removed Postings</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <div class="stat-value">{{ c.remoteJobCount }}</div>
+        <div class="stat-label">Remote Positions</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <div class="stat-value">{{ c.totalJobsEverSeen }}</div>
+        <div class="stat-label">Total Jobs Ever Posted</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <div class="stat-value">{{ c.duplicateJobCount }}</div>
+        <div class="stat-label">Duplicate Postings</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card" *ngIf="c.avgJobLifetimeDays != null">
+      <mat-card-content>
+        <div class="stat-value">{{ c.avgJobLifetimeDays | number:'1.0-1' }}d</div>
+        <div class="stat-label">Avg Job Lifetime</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card" *ngIf="c.avgRepostCount != null">
+      <mat-card-content>
+        <div class="stat-value">{{ c.avgRepostCount | number:'1.0-1' }}</div>
+        <div class="stat-label">Avg Repost Count</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card" *ngIf="c.salaryDisclosureRate != null">
+      <mat-card-content>
+        <div class="stat-value">{{ c.salaryDisclosureRate | percent:'1.0-0' }}</div>
+        <div class="stat-label">Salary Disclosure Rate</div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <p *ngIf="c.statsComputedAt" class="stats-timestamp">
+    Stats last updated {{ c.statsComputedAt | date:'medium' }}
+  </p>
+
+  <h2 class="section-title" style="margin-top: 32px">Hiring Activity</h2>
+
+  <mat-button-toggle-group [value]="range()" (change)="onRangeChange($event.value)" class="range-toggle">
+    <mat-button-toggle value="1w">1W</mat-button-toggle>
+    <mat-button-toggle value="1m">1M</mat-button-toggle>
+    <mat-button-toggle value="3m">3M</mat-button-toggle>
+    <mat-button-toggle value="6m">6M</mat-button-toggle>
+  </mat-button-toggle-group>
+
+  <div *ngIf="chartsLoading()" class="charts-loading">
+    <mat-spinner style="margin: 32px auto"></mat-spinner>
+  </div>
+
+  <div class="charts-grid" *ngIf="!chartsLoading()">
+    <mat-card class="chart-card">
+      <mat-card-header><mat-card-title>Active Postings</mat-card-title></mat-card-header>
+      <mat-card-content>
+        <app-company-hiring-chart [data]="snapshots()" chart="active"></app-company-hiring-chart>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="chart-card">
+      <mat-card-header><mat-card-title>Net Change (Added &minus; Removed)</mat-card-title></mat-card-header>
+      <mat-card-content>
+        <app-company-hiring-chart [data]="snapshots()" chart="net"></app-company-hiring-chart>
       </mat-card-content>
     </mat-card>
   </div>

@@ -4,6 +4,7 @@ using System.Text.Json;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace JobIntelligence.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260321191222_AddWikidataEnrichmentFields")]
+    partial class AddWikidataEnrichmentFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -102,24 +105,10 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<int>("ActiveJobCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("active_job_count");
-
                     b.Property<string>("AshbyBoardSlug")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("ashby_board_slug");
-
-                    b.Property<double?>("AvgJobLifetimeDays")
-                        .HasColumnType("double precision")
-                        .HasColumnName("avg_job_lifetime_days");
-
-                    b.Property<double?>("AvgRepostCount")
-                        .HasColumnType("double precision")
-                        .HasColumnName("avg_repost_count");
 
                     b.Property<string>("CanonicalName")
                         .IsRequired()
@@ -127,20 +116,10 @@ namespace JobIntelligence.Infrastructure.Migrations
                         .HasColumnType("character varying(300)")
                         .HasColumnName("canonical_name");
 
-                    b.Property<DateTime?>("DescriptionEnrichedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("description_enriched_at");
-
                     b.Property<string>("Domain")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("domain");
-
-                    b.Property<int>("DuplicateJobCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("duplicate_job_count");
 
                     b.Property<string>("EmployeeCountRange")
                         .HasMaxLength(50)
@@ -202,34 +181,8 @@ namespace JobIntelligence.Infrastructure.Migrations
                         .HasColumnType("character varying(300)")
                         .HasColumnName("normalized_name");
 
-                    b.Property<int>("RemoteJobCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("remote_job_count");
-
-                    b.Property<int>("RemovedJobCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("removed_job_count");
-
-                    b.Property<double?>("SalaryDisclosureRate")
-                        .HasColumnType("double precision")
-                        .HasColumnName("salary_disclosure_rate");
-
                     b.Property<string>("SmartRecruitersSlug")
                         .HasColumnType("text");
-
-                    b.Property<DateTime?>("StatsComputedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("stats_computed_at");
-
-                    b.Property<int>("TotalJobsEverSeen")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("total_jobs_ever_seen");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -249,19 +202,7 @@ namespace JobIntelligence.Infrastructure.Migrations
                     b.Property<string>("WorkableSlug")
                         .HasColumnType("text");
 
-                    b.Property<string>("WorkdayCareerSite")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("workday_career_site");
-
-                    b.Property<string>("WorkdayHost")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("workday_host");
-
                     b.HasKey("Id");
-
-                    b.HasIndex("ActiveJobCount");
 
                     b.HasIndex("AshbyBoardSlug");
 
@@ -271,8 +212,6 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasIndex("NormalizedName")
                         .IsUnique();
-
-                    b.HasIndex("WorkdayHost");
 
                     b.ToTable("companies", (string)null);
                 });

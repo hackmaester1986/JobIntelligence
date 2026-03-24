@@ -1,6 +1,51 @@
-.jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-.job-card { cursor: pointer; transition: box-shadow .2s; }
-.job-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.15); }
-h3 { margin: 0 0 6px; }
-.meta { color: rgba(0,0,0,.54); font-size: 13px; margin: 0 0 8px; }
-.chip.remote { background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+.header-card { margin-top: 16px; margin-bottom: 24px; }
+
+.section-title { margin: 0 0 16px; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat-card mat-card-content {
+  text-align: center;
+  padding: 16px 8px;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: rgba(0, 0, 0, .54);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+.stats-timestamp {
+  font-size: 12px;
+  color: rgba(0, 0, 0, .38);
+  margin-top: 8px;
+}
+
+.range-toggle { margin-bottom: 16px; }
+
+.charts-loading { margin: 32px 0; }
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.chart-card mat-card-content {
+  height: 280px;
+  position: relative;
+}

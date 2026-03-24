@@ -9,6 +9,7 @@ namespace JobIntelligence.Infrastructure.Collectors;
 public class CollectionOrchestrator(
     IEnumerable<IJobCollector> collectors,
     ApplicationDbContext db,
+    ICompanyStatsService statsService,
     ILogger<CollectionOrchestrator> logger) : ICollectionOrchestrator
 {
     public async Task RunAsync(string? sourceName = null, CancellationToken ct = default)
@@ -68,6 +69,7 @@ public class CollectionOrchestrator(
                         RemovedCount = result.Removed
                     });
 
+                    await statsService.RefreshStatsAsync(company.Id, ct);
                     await db.SaveChangesAsync(ct);
                 }
                 catch (Exception ex)
@@ -103,6 +105,9 @@ public class CollectionOrchestrator(
                 .ToListAsync(ct),
             "smartrecruiters" => await db.Companies
                 .Where(c => c.SmartRecruitersSlug != null)
+                .ToListAsync(ct),
+            "workday" => await db.Companies
+                .Where(c => c.WorkdayHost != null && c.WorkdayCareerSite != null)
                 .ToListAsync(ct),
             _ => await db.Companies.ToListAsync(ct)
         };

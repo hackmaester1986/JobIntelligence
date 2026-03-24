@@ -60,7 +60,7 @@ public class CompanyDiscoveryService(
                 }
 
                 await ImportCompanyAsync(entry.CanonicalName, normalized, entry.Domain,
-                    validatedGreenhouse, validatedLever, validatedAshby, null, ct);
+                    validatedGreenhouse, validatedLever, validatedAshby, null, null, null, ct);
                 existing.Add(normalized);
                 added.Add(entry.CanonicalName);
             }
@@ -78,7 +78,7 @@ public class CompanyDiscoveryService(
 
     public async Task<DiscoveryResult> DiscoverFromSlugsAsync(
         List<string> greenhouseSlugs, List<string> leverSlugs, List<string> ashbySlugs,
-        List<string> smartRecruitersSlugs, CancellationToken ct = default)
+        List<string> smartRecruitersSlugs, List<WorkdayEntry> workdayEntries, bool dryRun = false, CancellationToken ct = default)
     {
         var existing = await db.Companies.Select(c => c.NormalizedName).ToHashSetAsync(ct);
         var added = new List<string>();
@@ -89,6 +89,7 @@ public class CompanyDiscoveryService(
         var lever = httpClientFactory.CreateClient("Lever");
         var ashby = httpClientFactory.CreateClient("Ashby");
         var smartRecruiters = httpClientFactory.CreateClient("SmartRecruiters");
+        var workday = httpClientFactory.CreateClient("Workday");
 
         foreach (var slug in greenhouseSlugs)
         {
@@ -102,10 +103,13 @@ public class CompanyDiscoveryService(
                 else
                 {
                     var name = SlugToName(slug);
-                    await ImportCompanyAsync(name, normalized, null, validated, null, null, null, ct);
-                    existing.Add(normalized);
+                    if (!dryRun)
+                    {
+                        await ImportCompanyAsync(name, normalized, null, validated, null, null, null, null, null, ct);
+                        existing.Add(normalized);
+                    }
                     added.Add(name);
-                    logger.LogInformation("Imported {Company} (Greenhouse)", name);
+                    logger.LogInformation("{Action} {Company} (Greenhouse)", dryRun ? "Validated" : "Imported", name);
                 }
             }
             catch (Exception ex)
@@ -129,10 +133,13 @@ public class CompanyDiscoveryService(
                 else
                 {
                     var name = SlugToName(slug);
-                    await ImportCompanyAsync(name, normalized, null, null, validated, null, null, ct);
-                    existing.Add(normalized);
+                    if (!dryRun)
+                    {
+                        await ImportCompanyAsync(name, normalized, null, null, validated, null, null, null, null, ct);
+                        existing.Add(normalized);
+                    }
                     added.Add(name);
-                    logger.LogInformation("Imported {Company} (Lever)", name);
+                    logger.LogInformation("{Action} {Company} (Lever)", dryRun ? "Validated" : "Imported", name);
                 }
             }
             catch (Exception ex)
@@ -156,10 +163,13 @@ public class CompanyDiscoveryService(
                 else
                 {
                     var name = SlugToName(slug);
-                    await ImportCompanyAsync(name, normalized, null, null, null, validated, null, ct);
-                    existing.Add(normalized);
+                    if (!dryRun)
+                    {
+                        await ImportCompanyAsync(name, normalized, null, null, null, validated, null, null, null, ct);
+                        existing.Add(normalized);
+                    }
                     added.Add(name);
-                    logger.LogInformation("Imported {Company} (Ashby)", name);
+                    logger.LogInformation("{Action} {Company} (Ashby)", dryRun ? "Validated" : "Imported", name);
                 }
             }
             catch (Exception ex)
@@ -183,16 +193,49 @@ public class CompanyDiscoveryService(
                 else
                 {
                     var name = SlugToName(slug);
-                    await ImportCompanyAsync(name, normalized, null, null, null, null, validated, ct);
-                    existing.Add(normalized);
+                    if (!dryRun)
+                    {
+                        await ImportCompanyAsync(name, normalized, null, null, null, null, validated, null, null, ct);
+                        existing.Add(normalized);
+                    }
                     added.Add(name);
-                    logger.LogInformation("Imported {Company} (SmartRecruiters)", name);
+                    logger.LogInformation("{Action} {Company} (SmartRecruiters)", dryRun ? "Validated" : "Imported", name);
                 }
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to process SmartRecruiters slug {Slug}", slug);
                 failed.Add(slug);
+            }
+
+            await Task.Delay(200, ct);
+        }
+
+        foreach (var entry in workdayEntries)
+        {
+            var normalized = entry.Host.ToLowerInvariant();
+            if (existing.Contains(normalized)) { skipped++; continue; }
+
+            try
+            {
+                var validated = await ValidateWorkdayTenant(workday, entry.Host, entry.CareerSite, ct);
+                if (validated == null) { failed.Add(entry.Host); }
+                else
+                {
+                    var name = SlugToName(entry.Host.Split('.')[0]);
+                    if (!dryRun)
+                    {
+                        await ImportCompanyAsync(name, normalized, null, null, null, null, null, validated, entry.CareerSite, ct);
+                        existing.Add(normalized);
+                    }
+                    added.Add(name);
+                    logger.LogInformation("{Action} {Company} (Workday)", dryRun ? "Validated" : "Imported", name);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to process Workday host {Host}", entry.Host);
+                failed.Add(entry.Host);
             }
 
             await Task.Delay(200, ct);
@@ -205,7 +248,7 @@ public class CompanyDiscoveryService(
     private async Task ImportCompanyAsync(
         string canonicalName, string normalizedName, string? domain,
         string? greenhouseToken, string? leverSlug, string? ashbySlug,
-        string? smartRecruitersSlug, CancellationToken ct)
+        string? smartRecruitersSlug, string? workdayHost, string? workdayCareerSite, CancellationToken ct)
     {
         db.Companies.Add(new Company
         {
@@ -216,6 +259,8 @@ public class CompanyDiscoveryService(
             LeverCompanySlug = leverSlug,
             AshbyBoardSlug = ashbySlug,
             SmartRecruitersSlug = smartRecruitersSlug,
+            WorkdayHost = workdayHost,
+            WorkdayCareerSite = workdayCareerSite,
             FirstSeenAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
@@ -269,5 +314,38 @@ public class CompanyDiscoveryService(
         using var doc = JsonDocument.Parse(json);
         var total = doc.RootElement.TryGetProperty("totalFound", out var t) ? t.GetInt32() : 0;
         return total > 0 ? slug : null;
+    }
+
+    private async Task<string?> ValidateWorkdayTenant(
+        HttpClient client, string host, string careerSite, CancellationToken ct)
+    {
+        // Validate by hitting the CXS jobs API with limit=1 — if it returns JSON with a "total"
+        // field the tenant is live. The root URL returns 404 so we can't use that.
+        var tenant = host.Split('.')[0];
+        var url = $"https://{host}/wday/cxs/{tenant}/{careerSite}/jobs";
+        logger.LogInformation("Validating Workday tenant: POST {Url}", url);
+        try
+        {
+            using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
+            {
+                Content = System.Net.Http.Json.JsonContent.Create(new { appliedFacets = new { }, limit = 1, offset = 0, searchText = "" })
+            };
+            var response = await client.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Workday validation failed for {Host}: HTTP {Status}", host, (int)response.StatusCode);
+                return null;
+            }
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var valid = doc.RootElement.TryGetProperty("total", out _);
+            if (!valid) logger.LogWarning("Workday validation failed for {Host}: no 'total' in response", host);
+            return valid ? host : null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Workday validation exception for {Host}: {Message}", host, ex.Message);
+            return null;
+        }
     }
 }

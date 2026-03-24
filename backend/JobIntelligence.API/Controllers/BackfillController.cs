@@ -1,6 +1,7 @@
 using Anthropic;
 using Anthropic.Models.Messages;
 using JobIntelligence.Core.Entities;
+using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Parsing;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -338,5 +339,63 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         });
 
         return Accepted(new { message = "Description hash backfill started" });
+    }
+
+    [HttpPost("company-stats")]
+    public IActionResult BackfillCompanyStats()
+    {
+        logger.LogInformation("Company stats backfill triggered");
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var sql = """
+                WITH stats AS (
+                    SELECT
+                        company_id,
+                        COUNT(*) FILTER (WHERE is_active)                                          AS active_job_count,
+                        COUNT(*) FILTER (WHERE NOT is_active)                                      AS removed_job_count,
+                        COUNT(*) FILTER (WHERE is_active AND is_remote)                            AS remote_job_count,
+                        COUNT(*)                                                                    AS total_jobs_ever_seen,
+                        AVG(EXTRACT(EPOCH FROM (removed_at - first_seen_at)) / 86400.0)
+                            FILTER (WHERE removed_at IS NOT NULL)                                   AS avg_job_lifetime_days,
+                        AVG(repost_count::float) FILTER (WHERE is_active)                          AS avg_repost_count,
+                        AVG(CASE WHEN salary_disclosed THEN 1.0 ELSE 0.0 END) FILTER (WHERE is_active) AS salary_disclosure_rate
+                    FROM job_postings
+                    GROUP BY company_id
+                ),
+                dups AS (
+                    SELECT company_id, COALESCE(SUM(cnt), 0) AS duplicate_job_count
+                    FROM (
+                        SELECT company_id, COUNT(*) AS cnt
+                        FROM job_postings
+                        WHERE description_hash IS NOT NULL
+                        GROUP BY company_id, description_hash
+                        HAVING COUNT(*) > 1
+                    ) d
+                    GROUP BY company_id
+                )
+                UPDATE companies SET
+                    active_job_count       = COALESCE(s.active_job_count, 0),
+                    removed_job_count      = COALESCE(s.removed_job_count, 0),
+                    remote_job_count       = COALESCE(s.remote_job_count, 0),
+                    total_jobs_ever_seen   = COALESCE(s.total_jobs_ever_seen, 0),
+                    duplicate_job_count    = COALESCE(d.duplicate_job_count, 0),
+                    avg_job_lifetime_days  = s.avg_job_lifetime_days,
+                    avg_repost_count       = s.avg_repost_count,
+                    salary_disclosure_rate = s.salary_disclosure_rate,
+                    stats_computed_at      = NOW()
+                FROM stats s
+                LEFT JOIN dups d ON d.company_id = s.company_id
+                WHERE companies.id = s.company_id
+                """;
+
+            var updated = await db.Database.ExecuteSqlRawAsync(sql);
+            logger.LogInformation("Company stats backfill complete: {Total} companies updated", updated);
+        });
+
+        return Accepted(new { message = "Company stats backfill started" });
     }
 }

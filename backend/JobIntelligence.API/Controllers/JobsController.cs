@@ -16,6 +16,7 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
         [FromQuery] string? seniority,
         [FromQuery] bool? isRemote,
         [FromQuery] string? authenticityLabel,
+        [FromQuery] string? industry,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         CancellationToken ct = default)
@@ -28,7 +29,11 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
 
         if (!string.IsNullOrEmpty(q))
             query = query.Where(j => EF.Functions.ILike(j.Title, $"%{q}%")
-                || EF.Functions.ILike(j.Description ?? "", $"%{q}%"));
+                || EF.Functions.ILike(j.Description ?? "", $"%{q}%")
+                || EF.Functions.ILike(j.Company.CanonicalName, $"%{q}%"));
+
+        if (!string.IsNullOrEmpty(industry))
+            query = query.Where(j => EF.Functions.ILike(j.Company.Industry ?? "", $"%{industry}%"));
 
         if (!string.IsNullOrEmpty(source))
             query = query.Where(j => j.Source.Name == source);
@@ -69,7 +74,7 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
                 j.FirstSeenAt,
                 j.AuthenticityScore,
                 j.AuthenticityLabel,
-                Company = new { j.Company.Id, j.Company.CanonicalName, j.Company.LogoUrl },
+                Company = new { j.Company.Id, j.Company.CanonicalName, j.Company.LogoUrl, j.Company.Industry },
                 Source = new { j.Source.Name }
             })
             .ToListAsync(ct);
@@ -84,7 +89,37 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
             .Include(j => j.Company)
             .Include(j => j.Source)
             .Include(j => j.Skills).ThenInclude(s => s.Skill)
-            .FirstOrDefaultAsync(j => j.Id == id, ct);
+            .Where(j => j.Id == id)
+            .Select(j => new
+            {
+                j.Id,
+                j.Title,
+                j.Department,
+                j.Team,
+                j.SeniorityLevel,
+                j.EmploymentType,
+                j.LocationRaw,
+                j.LocationCity,
+                j.LocationCountry,
+                j.IsRemote,
+                j.IsHybrid,
+                j.SalaryMin,
+                j.SalaryMax,
+                j.SalaryCurrency,
+                j.SalaryPeriod,
+                j.SalaryDisclosed,
+                j.Description,
+                j.DescriptionHtml,
+                j.ApplyUrl,
+                j.PostedAt,
+                j.FirstSeenAt,
+                j.AuthenticityScore,
+                j.AuthenticityLabel,
+                Company = new { j.Company.Id, j.Company.CanonicalName, j.Company.LogoUrl, j.Company.Industry },
+                Source = new { j.Source.Name },
+                Skills = j.Skills.Select(s => s.Skill.CanonicalName)
+            })
+            .FirstOrDefaultAsync(ct);
 
         if (job == null) return NotFound();
         return Ok(job);

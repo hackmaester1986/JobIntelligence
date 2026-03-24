@@ -10,13 +10,14 @@ export interface Job {
   authenticityScore?: number;
   authenticityLabel?: string;
   source?: { name: string };
-  company?: { id: number; canonicalName: string; logoUrl?: string };
+  company?: { id: number; canonicalName: string; logoUrl?: string; industry?: string };
   companyId?: number;
   companyName?: string;
 }
 
 export interface JobDetail extends Job {
   description?: string;
+  descriptionHtml?: string;
   applyUrl?: string;
   salaryMin?: number;
   salaryMax?: number;
@@ -35,6 +36,7 @@ export interface JobFilters {
   isRemote?: boolean;
   seniority?: string;
   department?: string;
+  industry?: string;
   page?: number;
   pageSize?: number;
 }

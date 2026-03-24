@@ -1,7 +1,7 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { NgFor, NgIf } from '@angular/common';
+import { DecimalPipe, NgFor, NgIf } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,14 +9,16 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { MatDialog } from '@angular/material/dialog';
 import { Job, JobFilters } from '../../../core/models/job.model';
 import { JobsService, PagedResult } from '../../../core/services/jobs.service';
+import { JobDetailDialogComponent } from '../job-detail-dialog/job-detail-dialog.component';
 
 @Component({
   selector: 'app-jobs-list',
   standalone: true,
   imports: [
-    RouterLink, FormsModule, NgFor, NgIf,
+    RouterLink, FormsModule, NgFor, NgIf, DecimalPipe,
     MatCardModule, MatInputModule, MatButtonModule,
     MatFormFieldModule, MatChipsModule, MatProgressSpinnerModule, MatPaginatorModule
   ],
@@ -25,12 +27,14 @@ import { JobsService, PagedResult } from '../../../core/services/jobs.service';
 })
 export class JobsListComponent implements OnInit {
   private jobsService = inject(JobsService);
+  private dialog = inject(MatDialog);
 
   result = signal<PagedResult<Job> | null>(null);
   loading = signal(true);
 
   filters: JobFilters = { page: 1, pageSize: 20 };
   searchQ = '';
+  industryQ = '';
 
   ngOnInit(): void { this.load(); }
 
@@ -43,12 +47,25 @@ export class JobsListComponent implements OnInit {
   }
 
   search(): void {
-    this.filters = { ...this.filters, q: this.searchQ || undefined, page: 1 };
+    this.filters = {
+      ...this.filters,
+      q: this.searchQ || undefined,
+      industry: this.industryQ || undefined,
+      page: 1
+    };
     this.load();
   }
 
   onPage(e: PageEvent): void {
     this.filters = { ...this.filters, page: e.pageIndex + 1, pageSize: e.pageSize };
     this.load();
+  }
+
+  openDetail(id: number): void {
+    this.dialog.open(JobDetailDialogComponent, {
+      data: { jobId: id },
+      width: '720px',
+      maxHeight: '90vh'
+    });
   }
 }

@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IJobCollector, LeverCollector>();
         services.AddScoped<IJobCollector, AshbyCollector>();
         services.AddScoped<IJobCollector, SmartRecruitersCollector>();
+        services.AddScoped<IJobCollector, WorkdayCollector>();
         services.AddScoped<ICollectionOrchestrator, CollectionOrchestrator>();
         services.AddScoped<ICompanyDiscoveryService, CompanyDiscoveryService>();
 
@@ -45,6 +46,20 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri("https://api.smartrecruiters.com/");
             client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+        });
+
+        services.AddHttpClient("Workday", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
+        services.AddHttpClient("WorkdayJobs", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.Timeout = TimeSpan.FromSeconds(30);
         });
 
         services.AddHttpClient("CommonCrawl", client =>
@@ -55,6 +70,16 @@ public static class DependencyInjection
         });
 
         services.AddScoped<ICommonCrawlService, CommonCrawlService>();
+
+        services.AddHttpClient("Wikidata", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0 (company enrichment; contact via github)");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        services.AddScoped<IWikidataEnrichmentService, WikidataEnrichmentService>();
+        services.AddScoped<IDescriptionEnrichmentService, DescriptionEnrichmentService>();
+        services.AddScoped<ICompanyStatsService, CompanyStatsService>();
 
         var apiKey = configuration["Anthropic:ApiKey"] ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");
         services.AddSingleton(new AnthropicClient { ApiKey = apiKey });

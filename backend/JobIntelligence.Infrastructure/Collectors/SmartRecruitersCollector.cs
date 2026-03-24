@@ -75,7 +75,7 @@ public class SmartRecruitersCollector(
 
         foreach (var job in fetched)
         {
-            var mapped = MapToPosting(job, source.Id, company.Id);
+            var mapped = MapToPosting(job, source.Id, company.Id, company.SmartRecruitersSlug!);
 
             if (!existingMap.TryGetValue(job.Id ?? string.Empty, out var existing))
             {
@@ -116,7 +116,7 @@ public class SmartRecruitersCollector(
         return new CollectionResult(company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
     }
 
-    private static JobPosting MapToPosting(SmartRecruitersJob job, int sourceId, long companyId)
+    private static JobPosting MapToPosting(SmartRecruitersJob job, int sourceId, long companyId, string companySlug)
     {
         var city = job.Location?.City ?? string.Empty;
         var country = job.Location?.Country ?? string.Empty;
@@ -156,8 +156,8 @@ public class SmartRecruitersCollector(
             SalaryPeriod = salary.Period,
             SalaryDisclosed = salary.Disclosed,
             EmploymentType = employmentType,
-            ApplyUrl = job.Ref,
-            ApplyUrlDomain = ExtractDomain(job.Ref),
+            ApplyUrl = BuildApplyUrl(companySlug, job.Id, job.Name),
+            ApplyUrlDomain = "jobs.smartrecruiters.com",
             PostedAt = job.ReleasedDate.HasValue
                 ? DateTime.SpecifyKind(job.ReleasedDate.Value, DateTimeKind.Utc)
                 : null,
@@ -195,6 +195,14 @@ public class SmartRecruitersCollector(
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
+
+    private static string BuildApplyUrl(string companySlug, string? jobId, string? jobTitle)
+    {
+        var titleSlug = string.IsNullOrEmpty(jobTitle)
+            ? jobId ?? string.Empty
+            : System.Text.RegularExpressions.Regex.Replace(jobTitle.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+        return $"https://jobs.smartrecruiters.com/{companySlug}/{jobId}-{titleSlug}";
+    }
 
     private static string? ExtractDomain(string? url)
     {

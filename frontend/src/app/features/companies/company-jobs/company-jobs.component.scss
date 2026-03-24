@@ -1,0 +1,6 @@
+.jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.job-card { cursor: pointer; transition: box-shadow .2s; }
+.job-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+h3 { margin: 0 0 6px; }
+.meta { color: rgba(0,0,0,.54); font-size: 13px; margin: 0 0 8px; }
+.chip.remote { background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 12px; }

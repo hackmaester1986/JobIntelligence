@@ -8,11 +8,16 @@ export class ApiService {
   private http = inject(HttpClient);
   private base = environment.apiUrl;
 
-  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Observable<T> {
+  get<T>(path: string, params?: Record<string, string | number | boolean | string[] | undefined>): Observable<T> {
     let httpParams = new HttpParams();
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null) httpParams = httpParams.set(k, String(v));
+        if (v === undefined || v === null) return;
+        if (Array.isArray(v)) {
+          v.forEach(item => httpParams = httpParams.append(k, item));
+        } else {
+          httpParams = httpParams.set(k, String(v));
+        }
       });
     }
     return this.http.get<T>(`${this.base}${path}`, { params: httpParams });

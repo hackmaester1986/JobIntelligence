@@ -1,0 +1,30 @@
+<div mat-dialog-title *ngIf="!loading() && job() as j">
+  {{ j.title }}
+  <div style="font-size: 14px; font-weight: normal; color: rgba(0,0,0,.6)">
+    {{ j.company?.canonicalName }} · {{ j.locationRaw }}
+  </div>
+</div>
+
+<mat-dialog-content>
+  <div *ngIf="loading()" style="display: flex; justify-content: center; padding: 48px">
+    <mat-spinner></mat-spinner>
+  </div>
+
+  <ng-container *ngIf="job() as j">
+    <p *ngIf="j.seniorityLevel"><strong>Seniority:</strong> {{ j.seniorityLevel }}</p>
+    <p *ngIf="j.employmentType"><strong>Type:</strong> {{ j.employmentType }}</p>
+    <p>
+      <span *ngIf="j.isRemote" style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;background:#e3f2fd;color:#1565c0;margin-right:6px">Remote</span>
+      <span *ngIf="j.isHybrid" style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;background:#e8f5e9;color:#2e7d32">Hybrid</span>
+    </p>
+    <p *ngIf="j.salaryDisclosed && j.salaryMin">
+      <strong>Salary:</strong> {{ j.salaryCurrency }} {{ j.salaryMin | number }} – {{ j.salaryMax | number }} / {{ j.salaryPeriod }}
+    </p>
+    <div *ngIf="j.descriptionHtml || j.description" [innerHTML]="j.descriptionHtml || j.description" style="margin-top: 16px"></div>
+  </ng-container>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end" *ngIf="job() as j">
+  <button mat-button mat-dialog-close>Close</button>
+  <button *ngIf="j.applyUrl" mat-raised-button color="primary" (click)="applyNow(j.applyUrl!)">Apply Now</button>
+</mat-dialog-actions>

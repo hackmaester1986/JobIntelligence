@@ -2,37 +2,51 @@
 
 <div class="search-bar">
   <mat-form-field appearance="outline" style="flex:1">
-    <input matInput [(ngModel)]="searchQ" placeholder="Search companies..." (keydown.enter)="search()" />
+    <input matInput [ngModel]="searchQ" (ngModelChange)="onSearchInput($event)" placeholder="Search companies..." />
   </mat-form-field>
-  <button mat-raised-button color="primary" (click)="search()">Search</button>
 </div>
 
-<div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
+<div class="layout">
+  <aside class="filters-panel">
+    <p class="filter-heading">Industry</p>
+    <div class="industry-list">
+      <mat-checkbox
+        *ngFor="let ind of industries()"
+        [checked]="isSelected(ind)"
+        (change)="toggleIndustry(ind)">
+        {{ ind }}
+      </mat-checkbox>
+    </div>
+  </aside>
 
-<ng-container *ngIf="result() as r">
-  <p class="total">{{ r.total | number }} companies</p>
-  <div class="companies-grid">
-    <mat-card *ngFor="let c of r.data" class="company-card" [routerLink]="['/companies', c.id]">
-      <mat-card-content>
-        <div class="card-inner">
-          <img *ngIf="c.logoUrl" [src]="c.logoUrl" class="logo" [alt]="c.canonicalName" />
-          <div class="info">
-            <h3>{{ c.canonicalName }}</h3>
-            <p class="meta">
-              <span *ngIf="c.industry">{{ c.industry }}</span>
-              <span *ngIf="c.headquartersCity"> · {{ c.headquartersCity }}</span>
-            </p>
-            <span class="jobs-badge">{{ c.activeJobCount }} open jobs</span>
-          </div>
-        </div>
-      </mat-card-content>
-    </mat-card>
+  <div class="main-content">
+    <div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
+
+    <ng-container *ngIf="result() as r">
+      <p class="total">{{ r.total | number }} companies</p>
+      <div class="companies-grid">
+        <mat-card *ngFor="let c of r.data" class="company-card" [routerLink]="['/companies', c.id]">
+          <mat-card-content>
+            <div class="card-inner">
+              <div class="info">
+                <h3>{{ c.canonicalName }}</h3>
+                <p class="meta">
+                  <span *ngIf="c.industry">{{ c.industry }}</span>
+                  <span *ngIf="c.headquartersCity"> · {{ c.headquartersCity }}</span>
+                </p>
+                <span class="jobs-badge">{{ c.activeJobCount }} open jobs</span>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <mat-paginator
+        [length]="r.total"
+        [pageSize]="pageSize"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onPage($event)">
+      </mat-paginator>
+    </ng-container>
   </div>
-
-  <mat-paginator
-    [length]="r.total"
-    [pageSize]="pageSize"
-    [pageSizeOptions]="[25, 50, 100]"
-    (page)="onPage($event)">
-  </mat-paginator>
-</ng-container>
+</div>

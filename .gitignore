@@ -94,3 +94,5 @@ TestResults/
 
 *.swp
 *.tmp
+
+appsettings.Development.json

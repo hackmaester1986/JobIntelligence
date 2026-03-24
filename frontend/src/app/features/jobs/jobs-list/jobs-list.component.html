@@ -1,0 +1,45 @@
+<div class="search-bar">
+  <mat-form-field appearance="outline" style="flex: 2">
+    <mat-label>Search jobs, companies…</mat-label>
+    <input matInput [(ngModel)]="searchQ" (keyup.enter)="search()" placeholder="Search jobs, companies…">
+  </mat-form-field>
+  <mat-form-field appearance="outline" style="flex: 1">
+    <mat-label>Industry</mat-label>
+    <input matInput [(ngModel)]="industryQ" (keyup.enter)="search()" placeholder="Industry">
+  </mat-form-field>
+  <button mat-raised-button color="primary" (click)="search()">Search</button>
+</div>
+
+<p class="total" *ngIf="result() as r">{{ r.total | number }} jobs found</p>
+
+<div *ngIf="loading()" style="display: flex; justify-content: center; padding: 48px">
+  <mat-spinner></mat-spinner>
+</div>
+
+<div class="jobs-grid" *ngIf="!loading() && result() as r">
+  <mat-card class="job-card" *ngFor="let job of r.data" (click)="openDetail(job.id)">
+    <mat-card-content>
+      <h3>{{ job.title }}</h3>
+      <p class="company">{{ job.company?.canonicalName }}</p>
+      <p class="meta">
+        {{ job.locationRaw }}
+        <ng-container *ngIf="job.seniorityLevel"> · {{ job.seniorityLevel }}</ng-container>
+        <ng-container *ngIf="job.company?.industry"> · {{ job.company?.industry }}</ng-container>
+      </p>
+      <div class="chips">
+        <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+        <span *ngIf="job.isHybrid" class="chip hybrid">Hybrid</span>
+        <span *ngIf="job.source?.name" class="chip source">{{ job.source?.name }}</span>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
+
+<mat-paginator
+  *ngIf="result() as r"
+  [length]="r.total"
+  [pageSize]="filters.pageSize ?? 20"
+  [pageIndex]="(filters.page ?? 1) - 1"
+  [pageSizeOptions]="[10, 20, 50]"
+  (page)="onPage($event)">
+</mat-paginator>

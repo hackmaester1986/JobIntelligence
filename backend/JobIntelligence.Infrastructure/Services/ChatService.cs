@@ -29,7 +29,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         new Tool
         {
             Name = "get_companies",
-            Description = "Get companies with active job counts, optionally filtered by name.",
+            Description = "Get companies with hiring stats (active jobs, remote jobs, total jobs ever seen, avg job lifetime, repost rate, salary disclosure rate), optionally filtered by name.",
             InputSchema = new InputSchema
             {
                 Properties = new Dictionary<string, JsonElement>
@@ -46,6 +46,19 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
             InputSchema = new InputSchema
             {
                 Properties = new Dictionary<string, JsonElement>()
+            }
+        },
+        new Tool
+        {
+            Name = "get_job_trends",
+            Description = "Get time-series snapshot data showing how active job counts, new postings, and removals have changed over time. Can be scoped to a specific company or returned as an aggregate across all companies. Use this to answer questions about hiring trends, momentum, growth, or slowdowns.",
+            InputSchema = new InputSchema
+            {
+                Properties = new Dictionary<string, JsonElement>
+                {
+                    ["company"] = JsonSerializer.SerializeToElement(new { type = "string", description = "Company name to scope trends to (optional — omit for market-wide trends)" }),
+                    ["range"]   = JsonSerializer.SerializeToElement(new { type = "string", description = "Time range: '1w' (last 7 days), '1m' (last month), '3m' (last 3 months). Default '1m'." }),
+                }
             }
         }
     ];
@@ -102,10 +115,11 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
 
                     var result = tu.Name switch
                     {
-                        "search_jobs"   => await ExecuteSearchJobs(tu.Input, ct),
-                        "get_companies" => await ExecuteGetCompanies(tu.Input, ct),
-                        "get_stats"     => await ExecuteGetStats(ct),
-                        _               => """{"error":"unknown tool"}"""
+                        "search_jobs"    => await ExecuteSearchJobs(tu.Input, ct),
+                        "get_companies"  => await ExecuteGetCompanies(tu.Input, ct),
+                        "get_stats"      => await ExecuteGetStats(ct),
+                        "get_job_trends" => await ExecuteGetJobTrends(tu.Input, ct),
+                        _                => """{"error":"unknown tool"}"""
                     };
 
                     toolResults.Add(new ToolResultBlockParam
@@ -180,7 +194,13 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
                 c.Industry,
                 c.HeadquartersCity,
                 c.HeadquartersCountry,
-                ActiveJobCount = c.JobPostings.Count(j => j.IsActive)
+                c.ActiveJobCount,
+                c.RemoteJobCount,
+                c.TotalJobsEverSeen,
+                c.DuplicateJobCount,
+                c.AvgJobLifetimeDays,
+                c.AvgRepostCount,
+                c.SalaryDisclosureRate
             })
             .OrderByDescending(x => x.ActiveJobCount)
             .Take(limit)
@@ -215,5 +235,62 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
             .ToListAsync(ct);
 
         return JsonSerializer.Serialize(new { totalActiveJobs, totalCompanies, remoteJobs, topCompanies, bySeniority, topDepartments });
+    }
+
+    private async Task<string> ExecuteGetJobTrends(IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct)
+    {
+        var company = input.TryGetValue("company", out var cProp) ? cProp.GetString() : null;
+        var range    = input.TryGetValue("range",   out var rProp) ? rProp.GetString() : "1m";
+
+        var cutoff = range switch
+        {
+            "1w" => DateTime.UtcNow.AddDays(-7),
+            "3m" => DateTime.UtcNow.AddMonths(-3),
+            _    => DateTime.UtcNow.AddMonths(-1),
+        };
+        var trunc = range == "3m" ? "DATE_TRUNC('week', s.snapshot_at)" : "DATE(s.snapshot_at)";
+
+        var companyFilter = string.IsNullOrEmpty(company) ? "" : "AND LOWER(c.canonical_name) LIKE LOWER(@company)";
+
+        var sql = $"""
+            SELECT
+                {trunc}            AS date,
+                SUM(s.new_count)     AS added,
+                SUM(s.removed_count) AS removed,
+                (ARRAY_AGG(s.active_job_count ORDER BY s.snapshot_at DESC))[1] AS active_jobs
+            FROM company_job_snapshots s
+            JOIN companies c ON c.id = s.company_id
+            WHERE s.snapshot_at >= @cutoff
+              AND s.snapshot_at > (
+                  SELECT MIN(snapshot_at) FROM company_job_snapshots WHERE company_id = s.company_id
+              )
+              {companyFilter}
+            GROUP BY {trunc}
+            ORDER BY 1
+            """;
+
+        var conn = (Npgsql.NpgsqlConnection)db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        await using var cmd = new Npgsql.NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("cutoff", cutoff);
+        if (!string.IsNullOrEmpty(company))
+            cmd.Parameters.AddWithValue("company", $"%{company}%");
+
+        var rows = new List<object>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new
+            {
+                date       = reader.GetDateTime(0).ToString("yyyy-MM-dd"),
+                added      = reader.GetInt64(1),
+                removed    = reader.GetInt64(2),
+                activeJobs = reader.GetInt32(3),
+            });
+        }
+
+        return JsonSerializer.Serialize(new { range, company = company ?? "all", dataPoints = rows });
     }
 }

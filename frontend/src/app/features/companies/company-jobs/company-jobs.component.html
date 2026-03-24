@@ -1,0 +1,21 @@
+<a mat-button [routerLink]="['/companies', companyId]">&larr; Back to Company</a>
+
+<div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
+
+<ng-container *ngIf="!loading()">
+  <h2>Open Positions ({{ jobs().length }})</h2>
+  <div class="jobs-grid">
+    <mat-card *ngFor="let job of jobs()" class="job-card" [routerLink]="['/jobs', job.id]">
+      <mat-card-content>
+        <h3>{{ job.title }}</h3>
+        <p class="meta">
+          <span *ngIf="job.department">{{ job.department }}</span>
+          <span *ngIf="job.seniorityLevel"> &middot; {{ job.seniorityLevel }}</span>
+          <span *ngIf="job.locationRaw"> &middot; {{ job.locationRaw }}</span>
+        </p>
+        <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+      </mat-card-content>
+    </mat-card>
+  </div>
+  <p *ngIf="jobs().length === 0" style="color: rgba(0,0,0,.54)">No open positions found.</p>
+</ng-container>

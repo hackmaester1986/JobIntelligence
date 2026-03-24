@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Company } from '../models/company.model';
+import { Company, SnapshotPoint } from '../models/company.model';
 import { Job } from '../models/job.model';
 import { ApiService } from './api.service';
 import { PagedResult } from './jobs.service';
@@ -9,8 +9,12 @@ import { PagedResult } from './jobs.service';
 export class CompaniesService {
   private api = inject(ApiService);
 
-  getCompanies(q?: string, page = 1, pageSize = 50): Observable<PagedResult<Company>> {
-    return this.api.get<PagedResult<Company>>('/companies', { q, page, pageSize });
+  getIndustries(): Observable<string[]> {
+    return this.api.get<string[]>('/companies/industries');
+  }
+
+  getCompanies(q?: string, page = 1, pageSize = 50, industries?: string[]): Observable<PagedResult<Company>> {
+    return this.api.get<PagedResult<Company>>('/companies', { q, page, pageSize, industries });
   }
 
   getCompany(id: number): Observable<Company> {
@@ -19,5 +23,9 @@ export class CompaniesService {
 
   getCompanyJobs(id: number): Observable<Job[]> {
     return this.api.get<Job[]>(`/companies/${id}/jobs`);
+  }
+
+  getSnapshots(id: number, range: string): Observable<SnapshotPoint[]> {
+    return this.api.get<SnapshotPoint[]>(`/companies/${id}/snapshots`, { range });
   }
 }
