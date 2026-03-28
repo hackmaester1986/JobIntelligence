@@ -34,6 +34,14 @@ public class AshbyCollector(
                 $"posting-api/job-board/{company.AshbyBoardSlug}", ct);
             fetched = response?.Jobs ?? [];
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogWarning("Ashby board not found for {Company} (slug: {Slug}) — clearing slug",
+                company.CanonicalName, company.AshbyBoardSlug);
+            company.AshbyBoardSlug = null;
+            await db.SaveChangesAsync(ct);
+            return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, "Board not found (404) — slug cleared");
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch Ashby jobs for {Company}", company.CanonicalName);
@@ -140,6 +148,7 @@ public class AshbyCollector(
             LocationCountry = loc.Country,
             IsRemote = isRemote,
             IsHybrid = isHybrid,
+            IsUsPosting = UsLocationClassifier.Classify(Truncate(locationText, 500)),
             SalaryMin = salary.Min,
             SalaryMax = salary.Max,
             SalaryCurrency = salary.Currency,
@@ -180,6 +189,7 @@ public class AshbyCollector(
         existing.LocationCountry = incoming.LocationCountry;
         existing.IsRemote = incoming.IsRemote;
         existing.IsHybrid = incoming.IsHybrid;
+        existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.EmploymentType = incoming.EmploymentType;
         existing.DescriptionHtml = incoming.DescriptionHtml;

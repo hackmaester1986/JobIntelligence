@@ -5,6 +5,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { CdkTextareaAutosize } from '@angular/cdk/text-field';
 import { ChatService } from '../../../../core/services/chat.service';
 
 @Component({
@@ -12,7 +13,8 @@ import { ChatService } from '../../../../core/services/chat.service';
   standalone: true,
   imports: [
     FormsModule, NgFor, NgIf, NgClass,
-    MatInputModule, MatButtonModule, MatProgressSpinnerModule, MatFormFieldModule
+    MatInputModule, MatButtonModule, MatProgressSpinnerModule, MatFormFieldModule,
+    CdkTextareaAutosize
   ],
   templateUrl: './ai-chat.component.html',
   styleUrl: './ai-chat.component.scss'

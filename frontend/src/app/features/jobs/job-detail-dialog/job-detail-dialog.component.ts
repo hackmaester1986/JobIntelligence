@@ -22,7 +22,7 @@ export class JobDetailDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.jobsService.getJob(this.data.jobId).subscribe({
-      next: j => { this.job.set(j); this.loading.set(false); },
+      next: j => {console.log(j); this.job.set(j); this.loading.set(false); },
       error: () => this.loading.set(false)
     });
   }

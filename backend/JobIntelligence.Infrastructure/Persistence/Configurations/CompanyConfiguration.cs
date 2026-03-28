@@ -49,5 +49,11 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.HasIndex(x => x.AshbyBoardSlug);
         builder.HasIndex(x => x.WorkdayHost);
         builder.HasIndex(x => x.ActiveJobCount);
+
+        // Partial index covering tech_companies subquery + top_companies ORDER BY in stats query
+        builder.HasIndex(x => x.ActiveJobCount)
+            .IsDescending()
+            .HasFilter("is_tech_hiring IS NOT FALSE AND active_job_count > 0")
+            .HasDatabaseName("IX_companies_tech_hiring_active_job_count");
     }
 }

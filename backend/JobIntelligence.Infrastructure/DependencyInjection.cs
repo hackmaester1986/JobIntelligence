@@ -79,6 +79,7 @@ public static class DependencyInjection
 
         services.AddScoped<IWikidataEnrichmentService, WikidataEnrichmentService>();
         services.AddScoped<IDescriptionEnrichmentService, DescriptionEnrichmentService>();
+        services.AddScoped<IWebEnrichmentService, WebEnrichmentService>();
         services.AddScoped<ICompanyStatsService, CompanyStatsService>();
 
         var apiKey = configuration["Anthropic:ApiKey"] ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");

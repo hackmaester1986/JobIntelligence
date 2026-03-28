@@ -11,12 +11,14 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetJobs(
         [FromQuery] string? q,
+        [FromQuery] string? skill,
         [FromQuery] string? source,
         [FromQuery] long? companyId,
         [FromQuery] string? seniority,
         [FromQuery] bool? isRemote,
+        [FromQuery] bool? isUs,
         [FromQuery] string? authenticityLabel,
-        [FromQuery] string? industry,
+        [FromQuery] string[]? industries,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         CancellationToken ct = default)
@@ -24,16 +26,17 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
         var query = db.JobPostings
             .Include(j => j.Company)
             .Include(j => j.Source)
-            .Where(j => j.IsActive)
+            .Where(j => j.IsActive && j.Company.IsTechHiring != false)
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(q))
-            query = query.Where(j => EF.Functions.ILike(j.Title, $"%{q}%")
-                || EF.Functions.ILike(j.Description ?? "", $"%{q}%")
-                || EF.Functions.ILike(j.Company.CanonicalName, $"%{q}%"));
+            query = query.Where(j => EF.Functions.ILike(j.Title, $"%{q}%"));
 
-        if (!string.IsNullOrEmpty(industry))
-            query = query.Where(j => EF.Functions.ILike(j.Company.Industry ?? "", $"%{industry}%"));
+        if (!string.IsNullOrEmpty(skill))
+            query = query.Where(j => j.Skills.Any(s => EF.Functions.ILike(s.Skill.CanonicalName, $"%{skill}%")));
+
+        if (industries is { Length: > 0 })
+            query = query.Where(j => industries.Contains(j.Company.Industry));
 
         if (!string.IsNullOrEmpty(source))
             query = query.Where(j => j.Source.Name == source);
@@ -46,6 +49,12 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
 
         if (isRemote.HasValue)
             query = query.Where(j => j.IsRemote == isRemote.Value);
+
+        // isUs=true → US + unknown; isUs=false → international + unknown; null → all
+        if (isUs == true)
+            query = query.Where(j => j.IsUsPosting == true || j.IsUsPosting == null);
+        else if (isUs == false)
+            query = query.Where(j => j.IsUsPosting == false || j.IsUsPosting == null);
 
         if (!string.IsNullOrEmpty(authenticityLabel))
             query = query.Where(j => j.AuthenticityLabel == authenticityLabel);

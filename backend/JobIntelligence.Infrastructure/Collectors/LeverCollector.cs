@@ -33,6 +33,14 @@ public class LeverCollector(
             postings = await client.GetFromJsonAsync<List<LeverPosting>>(
                 $"v0/postings/{company.LeverCompanySlug}?mode=json", ct);
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogWarning("Lever board not found for {Company} (slug: {Slug}) — clearing slug",
+                company.CanonicalName, company.LeverCompanySlug);
+            company.LeverCompanySlug = null;
+            await db.SaveChangesAsync(ct);
+            return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, "Board not found (404) — slug cleared");
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch Lever postings for {Company}", company.CanonicalName);
@@ -120,7 +128,8 @@ public class LeverCollector(
         var locationText = posting.Categories?.Location ?? string.Empty;
         var commitment = posting.Categories?.Commitment ?? string.Empty;
         var loc = LocationParser.Parse(locationText);
-        var salary = Parse(posting.DescriptionBody);
+        var descriptionHtml = BuildDescriptionHtml(posting);
+        var salary = Parse(descriptionHtml);
         var isRemote = loc.IsRemote || commitment.Contains("remote", StringComparison.OrdinalIgnoreCase);
         var isHybrid = loc.IsHybrid || commitment.Contains("hybrid", StringComparison.OrdinalIgnoreCase);
 
@@ -152,15 +161,16 @@ public class LeverCollector(
             LocationCountry = loc.Country,
             IsRemote = isRemote,
             IsHybrid = isHybrid,
+            IsUsPosting = UsLocationClassifier.Classify(locationText),
             SalaryMin = salary.Min,
             SalaryMax = salary.Max,
             SalaryCurrency = salary.Currency,
             SalaryPeriod = salary.Period,
             SalaryDisclosed = salary.Disclosed,
             EmploymentType = employmentType,
-            DescriptionHtml = posting.DescriptionBody,
-            Description = StripHtml(posting.DescriptionBody),
-            DescriptionHash = Compute(StripHtml(posting.DescriptionBody)),
+            DescriptionHtml = descriptionHtml,
+            Description = StripHtml(descriptionHtml),
+            DescriptionHash = Compute(StripHtml(descriptionHtml)),
             ApplyUrl = posting.ApplyUrl,
             ApplyUrlDomain = ExtractDomain(posting.ApplyUrl),
             PostedAt = postedAt,
@@ -189,6 +199,7 @@ public class LeverCollector(
         existing.LocationCountry = incoming.LocationCountry;
         existing.IsRemote = incoming.IsRemote;
         existing.IsHybrid = incoming.IsHybrid;
+        existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.EmploymentType = incoming.EmploymentType;
         existing.DescriptionHtml = incoming.DescriptionHtml;
@@ -197,6 +208,26 @@ public class LeverCollector(
         existing.ApplyUrl = incoming.ApplyUrl;
         existing.ApplyUrlDomain = incoming.ApplyUrlDomain;
         existing.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static string? BuildDescriptionHtml(LeverPosting posting)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(posting.Description))
+            parts.Add(posting.Description);
+        if (!string.IsNullOrWhiteSpace(posting.DescriptionBody))
+            parts.Add(posting.DescriptionBody);
+        if (posting.Lists != null)
+        {
+            foreach (var section in posting.Lists)
+            {
+                if (!string.IsNullOrWhiteSpace(section.Content))
+                    parts.Add(string.IsNullOrWhiteSpace(section.Text)
+                        ? section.Content
+                        : $"<p><strong>{section.Text}</strong></p>{section.Content}");
+            }
+        }
+        return parts.Count == 0 ? null : string.Join("\n", parts);
     }
 
     private static string? ExtractDomain(string? url)
@@ -217,10 +248,17 @@ public class LeverCollector(
     private record LeverPosting(
         [property: JsonPropertyName("id")] string? Id,
         [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("description")] string? Description,
         [property: JsonPropertyName("descriptionBody")] string? DescriptionBody,
+        [property: JsonPropertyName("lists")] List<LeverSection>? Lists,
         [property: JsonPropertyName("applyUrl")] string? ApplyUrl,
         [property: JsonPropertyName("categories")] LeverCategories? Categories,
         [property: JsonPropertyName("createdAt")] long? CreatedAt
+    );
+
+    private record LeverSection(
+        [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("content")] string? Content
     );
 
     private record LeverCategories(

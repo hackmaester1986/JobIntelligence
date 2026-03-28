@@ -7,4 +7,6 @@ public interface ICompanyDiscoveryService
 }
 
 public record DiscoveryResult(int Added, int Skipped, int Failed,
-    List<string> AddedCompanies, List<string> FailedCompanies);
+    List<string> AddedCompanies, List<string> FailedCompanies,
+    Dictionary<string, int> ValidatedPerSource,
+    Dictionary<string, int> FailedPerSource);

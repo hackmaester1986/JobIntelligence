@@ -4,6 +4,7 @@ using System.Text.Json;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace JobIntelligence.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260326160633_AddWebEnrichedAt")]
+    partial class AddWebEnrichedAt
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -264,10 +267,7 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ActiveJobCount")
-                        .IsDescending()
-                        .HasDatabaseName("IX_companies_tech_hiring_active_job_count")
-                        .HasFilter("is_tech_hiring IS NOT FALSE AND active_job_count > 0");
+                    b.HasIndex("ActiveJobCount");
 
                     b.HasIndex("AshbyBoardSlug");
 
@@ -427,10 +427,6 @@ namespace JobIntelligence.Infrastructure.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_remote");
 
-                    b.Property<bool?>("IsUsPosting")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_us_posting");
-
                     b.Property<DateTime>("LastSeenAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -538,21 +534,7 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId")
-                        .HasDatabaseName("IX_job_postings_active_company_id")
-                        .HasFilter("is_active = true");
-
-                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("CompanyId"), new[] { "IsRemote", "IsHybrid", "FirstSeenAt" });
-
-                    b.HasIndex("Department")
-                        .HasDatabaseName("IX_job_postings_active_department")
-                        .HasFilter("is_active = true AND department IS NOT NULL");
-
                     b.HasIndex("PreviousPostingId");
-
-                    b.HasIndex("SeniorityLevel")
-                        .HasDatabaseName("IX_job_postings_active_seniority")
-                        .HasFilter("is_active = true AND seniority_level IS NOT NULL");
 
                     b.HasIndex("AuthenticityLabel", "PostedAt");
 

@@ -27,6 +27,7 @@ public class JobPostingConfiguration : IEntityTypeConfiguration<JobPosting>
         builder.Property(x => x.LocationCountry).HasColumnName("location_country").HasMaxLength(100);
         builder.Property(x => x.IsRemote).HasColumnName("is_remote").HasDefaultValue(false);
         builder.Property(x => x.IsHybrid).HasColumnName("is_hybrid").HasDefaultValue(false);
+        builder.Property(x => x.IsUsPosting).HasColumnName("is_us_posting");
 
         builder.Property(x => x.SalaryMin).HasColumnName("salary_min").HasPrecision(12, 2);
         builder.Property(x => x.SalaryMax).HasColumnName("salary_max").HasPrecision(12, 2);
@@ -67,6 +68,23 @@ public class JobPostingConfiguration : IEntityTypeConfiguration<JobPosting>
         builder.HasIndex(x => new { x.AuthenticityLabel, x.PostedAt });
         builder.HasIndex(x => new { x.CompanyId, x.DescriptionHash });
         builder.HasIndex(x => x.PreviousPostingId);
+
+        // Partial indexes for dashboard stats query (WHERE is_active = true)
+        // Covers counts/seniority/departments CTEs that all filter by company_id + is_active
+        builder.HasIndex(x => x.CompanyId)
+            .IncludeProperties(x => new { x.IsRemote, x.IsHybrid, x.FirstSeenAt })
+            .HasFilter("is_active = true")
+            .HasDatabaseName("IX_job_postings_active_company_id");
+
+        // Covers the departments CTE GROUP BY
+        builder.HasIndex(x => x.Department)
+            .HasFilter("is_active = true AND department IS NOT NULL")
+            .HasDatabaseName("IX_job_postings_active_department");
+
+        // Covers the seniority CTE GROUP BY
+        builder.HasIndex(x => x.SeniorityLevel)
+            .HasFilter("is_active = true AND seniority_level IS NOT NULL")
+            .HasDatabaseName("IX_job_postings_active_seniority");
 
         builder.HasOne(x => x.Source)
             .WithMany(x => x.JobPostings)

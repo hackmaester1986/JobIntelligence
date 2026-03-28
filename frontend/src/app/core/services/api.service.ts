@@ -1,7 +1,16 @@
 import { inject, Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParameterCodec, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+
+class StrictEncoder implements HttpParameterCodec {
+  encodeKey(key: string): string { return encodeURIComponent(key); }
+  encodeValue(value: string): string { return encodeURIComponent(value); }
+  decodeKey(key: string): string { return decodeURIComponent(key); }
+  decodeValue(value: string): string { return decodeURIComponent(value); }
+}
+
+const STRICT_ENCODER = new StrictEncoder();
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -9,7 +18,7 @@ export class ApiService {
   private base = environment.apiUrl;
 
   get<T>(path: string, params?: Record<string, string | number | boolean | string[] | undefined>): Observable<T> {
-    let httpParams = new HttpParams();
+    let httpParams = new HttpParams({ encoder: STRICT_ENCODER });
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (v === undefined || v === null) return;

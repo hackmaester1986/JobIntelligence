@@ -73,7 +73,7 @@ public class CompanyDiscoveryService(
             await Task.Delay(200, ct);
         }
 
-        return new DiscoveryResult(added.Count, skipped, failed.Count, added, failed);
+        return new DiscoveryResult(added.Count, skipped, failed.Count, added, failed, new(), new());
     }
 
     public async Task<DiscoveryResult> DiscoverFromSlugsAsync(
@@ -84,6 +84,8 @@ public class CompanyDiscoveryService(
         var added = new List<string>();
         var failed = new List<string>();
         int skipped = 0;
+        var validatedPerSource = new Dictionary<string, int>();
+        var failedPerSource = new Dictionary<string, int>();
 
         var greenhouse = httpClientFactory.CreateClient("Greenhouse");
         var lever = httpClientFactory.CreateClient("Lever");
@@ -99,7 +101,7 @@ public class CompanyDiscoveryService(
             try
             {
                 var validated = await ValidateGreenhouseToken(greenhouse, slug, ct);
-                if (validated == null) { failed.Add(slug); }
+                if (validated == null) { failed.Add(slug); failedPerSource["Greenhouse"] = failedPerSource.GetValueOrDefault("Greenhouse") + 1; }
                 else
                 {
                     var name = SlugToName(slug);
@@ -109,6 +111,7 @@ public class CompanyDiscoveryService(
                         existing.Add(normalized);
                     }
                     added.Add(name);
+                    validatedPerSource["Greenhouse"] = validatedPerSource.GetValueOrDefault("Greenhouse") + 1;
                     logger.LogInformation("{Action} {Company} (Greenhouse)", dryRun ? "Validated" : "Imported", name);
                 }
             }
@@ -129,7 +132,7 @@ public class CompanyDiscoveryService(
             try
             {
                 var validated = await ValidateLeverSlug(lever, slug, ct);
-                if (validated == null) { failed.Add(slug); }
+                if (validated == null) { failed.Add(slug); failedPerSource["Lever"] = failedPerSource.GetValueOrDefault("Lever") + 1; }
                 else
                 {
                     var name = SlugToName(slug);
@@ -139,6 +142,7 @@ public class CompanyDiscoveryService(
                         existing.Add(normalized);
                     }
                     added.Add(name);
+                    validatedPerSource["Lever"] = validatedPerSource.GetValueOrDefault("Lever") + 1;
                     logger.LogInformation("{Action} {Company} (Lever)", dryRun ? "Validated" : "Imported", name);
                 }
             }
@@ -159,7 +163,7 @@ public class CompanyDiscoveryService(
             try
             {
                 var validated = await ValidateAshbySlug(ashby, slug, ct);
-                if (validated == null) { failed.Add(slug); }
+                if (validated == null) { failed.Add(slug); failedPerSource["Ashby"] = failedPerSource.GetValueOrDefault("Ashby") + 1; }
                 else
                 {
                     var name = SlugToName(slug);
@@ -169,6 +173,7 @@ public class CompanyDiscoveryService(
                         existing.Add(normalized);
                     }
                     added.Add(name);
+                    validatedPerSource["Ashby"] = validatedPerSource.GetValueOrDefault("Ashby") + 1;
                     logger.LogInformation("{Action} {Company} (Ashby)", dryRun ? "Validated" : "Imported", name);
                 }
             }
@@ -189,7 +194,7 @@ public class CompanyDiscoveryService(
             try
             {
                 var validated = await ValidateSmartRecruitersSlug(smartRecruiters, slug, ct);
-                if (validated == null) { failed.Add(slug); }
+                if (validated == null) { failed.Add(slug); failedPerSource["SmartRecruiters"] = failedPerSource.GetValueOrDefault("SmartRecruiters") + 1; }
                 else
                 {
                     var name = SlugToName(slug);
@@ -199,6 +204,7 @@ public class CompanyDiscoveryService(
                         existing.Add(normalized);
                     }
                     added.Add(name);
+                    validatedPerSource["SmartRecruiters"] = validatedPerSource.GetValueOrDefault("SmartRecruiters") + 1;
                     logger.LogInformation("{Action} {Company} (SmartRecruiters)", dryRun ? "Validated" : "Imported", name);
                 }
             }
@@ -219,7 +225,7 @@ public class CompanyDiscoveryService(
             try
             {
                 var validated = await ValidateWorkdayTenant(workday, entry.Host, entry.CareerSite, ct);
-                if (validated == null) { failed.Add(entry.Host); }
+                if (validated == null) { failed.Add(entry.Host); failedPerSource["Workday"] = failedPerSource.GetValueOrDefault("Workday") + 1; }
                 else
                 {
                     var name = SlugToName(entry.Host.Split('.')[0]);
@@ -229,6 +235,7 @@ public class CompanyDiscoveryService(
                         existing.Add(normalized);
                     }
                     added.Add(name);
+                    validatedPerSource["Workday"] = validatedPerSource.GetValueOrDefault("Workday") + 1;
                     logger.LogInformation("{Action} {Company} (Workday)", dryRun ? "Validated" : "Imported", name);
                 }
             }
@@ -241,7 +248,7 @@ public class CompanyDiscoveryService(
             await Task.Delay(200, ct);
         }
 
-        return new DiscoveryResult(added.Count, skipped, failed.Count, added, failed);
+        return new DiscoveryResult(added.Count, skipped, failed.Count, added, failed, validatedPerSource, failedPerSource);
     }
 
     // Shared: insert a validated company row

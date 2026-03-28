@@ -30,7 +30,7 @@ public class CommonCrawlService(
         if (source != null && !SourceDomains.ContainsKey(source))
             throw new ArgumentException($"Unknown source '{source}'. Valid values: {string.Join(", ", SourceDomains.Keys)}");
 
-        var indexes = await GetRecentIndexesAsync(1, ct);
+        var indexes = await GetRecentIndexesAsync(4, ct);
         logger.LogInformation("Using Common Crawl indexes: {Indexes}", string.Join(", ", indexes));
 
         var leverSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -46,8 +46,10 @@ public class CommonCrawlService(
         {
             if (ShouldCrawl("greenhouse"))
             {
-                var gh = await QueryDomainAsync(indexId, "boards.greenhouse.io", ct);
-                foreach (var s in gh) greenhouseSlugs.Add(s);
+                var gh1 = await QueryDomainAsync(indexId, "boards.greenhouse.io", ct);
+                foreach (var s in gh1) greenhouseSlugs.Add(s);
+                var gh2 = await QueryDomainAsync(indexId, "job-boards.greenhouse.io", ct);
+                foreach (var s in gh2) greenhouseSlugs.Add(s);
             }
 
             if (ShouldCrawl("lever"))
@@ -64,8 +66,10 @@ public class CommonCrawlService(
 
             if (ShouldCrawl("smartrecruiters"))
             {
-                var sr = await QueryDomainAsync(indexId, "careers.smartrecruiters.com", ct);
-                foreach (var s in sr) smartRecruitersSlugs.Add(s);
+                var sr1 = await QueryDomainAsync(indexId, "careers.smartrecruiters.com", ct);
+                foreach (var s in sr1) smartRecruitersSlugs.Add(s);
+                var sr2 = await QueryDomainAsync(indexId, "jobs.smartrecruiters.com", ct);
+                foreach (var s in sr2) smartRecruitersSlugs.Add(s);
             }
 
             if (ShouldCrawl("workday"))

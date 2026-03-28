@@ -73,40 +73,68 @@ public class SmartRecruitersCollector(
             removedCount++;
         }
 
-        foreach (var job in fetched)
+        // Fetch details for new jobs in parallel, update existing jobs sequentially
+        var newJobs      = fetched.Where(j => !existingMap.ContainsKey(j.Id ?? string.Empty)).ToList();
+        var existingJobs = fetched.Where(j =>  existingMap.ContainsKey(j.Id ?? string.Empty)).ToList();
+
+        var semaphore = new SemaphoreSlim(5);
+        var detailTasks = newJobs.Select(async job =>
         {
-            var mapped = MapToPosting(job, source.Id, company.Id, company.SmartRecruitersSlug!);
+            await semaphore.WaitAsync(ct);
+            try   { return (Job: job, Detail: await FetchDetailAsync(client, job.Ref, job.Id, company.CanonicalName, ct)); }
+            finally { semaphore.Release(); }
+        });
 
-            if (!existingMap.TryGetValue(job.Id ?? string.Empty, out var existing))
-            {
-                if (mapped.DescriptionHash != null && removedByHash.TryGetValue(mapped.DescriptionHash, out var prev))
-                {
-                    mapped.PreviousPostingId = prev.Id;
-                    mapped.RepostCount = (short)(prev.RepostCount + 1);
-                }
-                db.JobPostings.Add(mapped);
-                newCount++;
-            }
-            else
-            {
-                var changed = DetectChanges(existing, mapped);
-                if (changed.Count > 0)
-                {
-                    db.JobSnapshots.Add(new JobSnapshot
-                    {
-                        JobPostingId = existing.Id,
-                        SnapshotAt = DateTime.UtcNow,
-                        ChangedFields = JsonDocument.Parse(JsonSerializer.Serialize(changed)),
-                        RawData = mapped.RawData
-                    });
-                    ApplyChanges(existing, mapped);
-                    updatedCount++;
-                }
+        var newJobResults = await Task.WhenAll(detailTasks);
 
-                existing.LastSeenAt = DateTime.UtcNow;
-                existing.IsActive = true;
-                existing.RemovedAt = null;
+        foreach (var (job, detail) in newJobResults)
+        {
+            if (detail == null) continue;
+
+            var mapped = MapToPosting(job, detail, source.Id, company.Id);
+            if (mapped.DescriptionHash != null && removedByHash.TryGetValue(mapped.DescriptionHash, out var prev))
+            {
+                mapped.PreviousPostingId = prev.Id;
+                mapped.RepostCount = (short)(prev.RepostCount + 1);
             }
+            db.JobPostings.Add(mapped);
+            newCount++;
+        }
+
+        foreach (var job in existingJobs)
+        {
+            var existing = existingMap[job.Id ?? string.Empty];
+            var mapped   = MapToPosting(job, null, source.Id, company.Id);
+            var changed  = DetectChanges(existing, mapped);
+            if (changed.Count > 0)
+            {
+                db.JobSnapshots.Add(new JobSnapshot
+                {
+                    JobPostingId = existing.Id,
+                    SnapshotAt   = DateTime.UtcNow,
+                    ChangedFields = JsonDocument.Parse(JsonSerializer.Serialize(changed)),
+                    RawData = mapped.RawData
+                });
+                ApplyChanges(existing, mapped);
+                updatedCount++;
+            }
+
+            existing.LastSeenAt = DateTime.UtcNow;
+            existing.IsActive   = true;
+            existing.RemovedAt  = null;
+        }
+
+        // Enrich company from API data
+        var firstJob = fetched.FirstOrDefault();
+        if (firstJob != null)
+        {
+            var apiName = firstJob.Company?.Name;
+            if (!string.IsNullOrEmpty(apiName))
+                company.CanonicalName = apiName;
+
+            var apiIndustry = firstJob.Industry?.Label;
+            if (!string.IsNullOrEmpty(apiIndustry) && string.IsNullOrEmpty(company.Industry))
+                company.Industry = apiIndustry;
         }
 
         await db.SaveChangesAsync(ct);
@@ -116,16 +144,41 @@ public class SmartRecruitersCollector(
         return new CollectionResult(company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
     }
 
-    private static JobPosting MapToPosting(SmartRecruitersJob job, int sourceId, long companyId, string companySlug)
+    private async Task<SmartRecruitersJobDetail?> FetchDetailAsync(
+        HttpClient client, string? refUrl, string? jobId, string companyName, CancellationToken ct)
     {
+        if (string.IsNullOrEmpty(refUrl))
+        {
+            logger.LogWarning("SmartRecruiters [{Company}]: no ref URL for job {JobId}", companyName, jobId);
+            return null;
+        }
+
+        try
+        {
+            var detail = await client.GetFromJsonAsync<SmartRecruitersJobDetail>(refUrl, ct);
+            return detail;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SmartRecruiters [{Company}]: failed to fetch detail for job {JobId}", companyName, jobId);
+            return null;
+        }
+        finally
+        {
+            await Task.Delay(300, ct);
+        }
+    }
+
+    private static JobPosting MapToPosting(SmartRecruitersJob job, SmartRecruitersJobDetail? detail, int sourceId, long companyId)
+    {
+        var fullLocation = job.Location?.FullLocation;
         var city = job.Location?.City ?? string.Empty;
         var country = job.Location?.Country ?? string.Empty;
-        var locationText = string.Join(", ", new[] { city, country }.Where(s => !string.IsNullOrEmpty(s)));
+        var locationText = fullLocation ?? string.Join(", ", new[] { city, country }.Where(s => !string.IsNullOrEmpty(s)));
         var loc = LocationParser.Parse(locationText);
-        var salary = Parse(null);
 
         var isRemote = job.Location?.Remote == true || loc.IsRemote;
-        var isHybrid = loc.IsHybrid;
+        var isHybrid = job.Location?.Hybrid == true || loc.IsHybrid;
 
         var employmentType = job.TypeOfEmployment?.Label?.ToLowerInvariant() switch
         {
@@ -136,27 +189,38 @@ public class SmartRecruitersCollector(
             _ => null
         };
 
+        var descriptionHtml = BuildDescriptionHtml(detail);
+        var description = StripHtml(descriptionHtml);
+        var descriptionHash = Compute(description);
+        var salary = Parse(descriptionHtml);
+
+        var applyUrl = detail?.PostingUrl ?? detail?.ApplyUrl ?? BuildApplyUrl(job.Company?.Name ?? companyId.ToString(), job.Id, job.Name);
+
         return new JobPosting
         {
             ExternalId = job.Id ?? string.Empty,
             SourceId = sourceId,
             CompanyId = companyId,
             Title = job.Name ?? string.Empty,
-            SeniorityLevel = TitleParser.Parse(job.Name),
-            Department = job.Department?.Label,
+            SeniorityLevel = job.ExperienceLevel?.Label ?? TitleParser.Parse(job.Name),
+            Department = !string.IsNullOrEmpty(job.Department?.Label) ? job.Department.Label : job.Function?.Label,
             LocationRaw = Truncate(locationText, 500),
             LocationCity = loc.City,
             LocationState = loc.State,
             LocationCountry = loc.Country,
             IsRemote = isRemote,
             IsHybrid = isHybrid,
+            IsUsPosting = UsLocationClassifier.Classify(Truncate(locationText, 500)),
             SalaryMin = salary.Min,
             SalaryMax = salary.Max,
             SalaryCurrency = salary.Currency,
             SalaryPeriod = salary.Period,
             SalaryDisclosed = salary.Disclosed,
             EmploymentType = employmentType,
-            ApplyUrl = BuildApplyUrl(companySlug, job.Id, job.Name),
+            DescriptionHtml = descriptionHtml,
+            Description = description,
+            DescriptionHash = descriptionHash,
+            ApplyUrl = applyUrl,
             ApplyUrlDomain = "jobs.smartrecruiters.com",
             PostedAt = job.ReleasedDate.HasValue
                 ? DateTime.SpecifyKind(job.ReleasedDate.Value, DateTimeKind.Utc)
@@ -164,6 +228,29 @@ public class SmartRecruitersCollector(
             IsActive = true,
             RawData = JsonDocument.Parse(JsonSerializer.Serialize(job))
         };
+    }
+
+    private static string? BuildDescriptionHtml(SmartRecruitersJobDetail? detail)
+    {
+        var sections = detail?.JobAd?.Sections;
+        if (sections == null) return null;
+
+        var parts = new List<string>();
+        foreach (var section in new[] { sections.CompanyDescription, sections.JobDescription, sections.Qualifications, sections.AdditionalInformation })
+        {
+            if (!string.IsNullOrWhiteSpace(section?.Text))
+                parts.Add(section.Text);
+        }
+
+        return parts.Count == 0 ? null : string.Join("\n", parts);
+    }
+
+    private static string? StripHtml(string? html)
+    {
+        if (string.IsNullOrEmpty(html)) return null;
+        return System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ")
+            .Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
+            .Replace("&nbsp;", " ").Replace("&#xa0;", " ").Trim();
     }
 
     private static Dictionary<string, object[]> DetectChanges(JobPosting existing, JobPosting incoming)
@@ -186,6 +273,7 @@ public class SmartRecruitersCollector(
         existing.LocationCountry = incoming.LocationCountry;
         existing.IsRemote = incoming.IsRemote;
         existing.IsHybrid = incoming.IsHybrid;
+        existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.EmploymentType = incoming.EmploymentType;
         existing.ApplyUrl = incoming.ApplyUrl;
@@ -204,13 +292,6 @@ public class SmartRecruitersCollector(
         return $"https://jobs.smartrecruiters.com/{companySlug}/{jobId}-{titleSlug}";
     }
 
-    private static string? ExtractDomain(string? url)
-    {
-        if (string.IsNullOrEmpty(url)) return null;
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)) return uri.Host;
-        return null;
-    }
-
     private record SmartRecruitersResponse(
         [property: JsonPropertyName("content")] List<SmartRecruitersJob>? Content,
         [property: JsonPropertyName("totalFound")] int TotalFound);
@@ -218,14 +299,36 @@ public class SmartRecruitersCollector(
     private record SmartRecruitersJob(
         [property: JsonPropertyName("id")] string? Id,
         [property: JsonPropertyName("name")] string? Name,
-        [property: JsonPropertyName("department")] SmartRecruitersDepartment? Department,
+        [property: JsonPropertyName("company")] SmartRecruitersCompany? Company,
+        [property: JsonPropertyName("department")] SmartRecruitersLabel? Department,
+        [property: JsonPropertyName("function")] SmartRecruitersLabel? Function,
+        [property: JsonPropertyName("industry")] SmartRecruitersLabel? Industry,
         [property: JsonPropertyName("location")] SmartRecruitersLocation? Location,
         [property: JsonPropertyName("typeOfEmployment")] SmartRecruitersLabel? TypeOfEmployment,
+        [property: JsonPropertyName("experienceLevel")] SmartRecruitersLabel? ExperienceLevel,
         [property: JsonPropertyName("ref")] string? Ref,
         [property: JsonPropertyName("releasedDate")] DateTime? ReleasedDate);
 
-    private record SmartRecruitersDepartment(
-        [property: JsonPropertyName("label")] string? Label);
+    private record SmartRecruitersJobDetail(
+        [property: JsonPropertyName("postingUrl")] string? PostingUrl,
+        [property: JsonPropertyName("applyUrl")] string? ApplyUrl,
+        [property: JsonPropertyName("jobAd")] SmartRecruitersJobAd? JobAd);
+
+    private record SmartRecruitersJobAd(
+        [property: JsonPropertyName("sections")] SmartRecruitersJobAdSections? Sections);
+
+    private record SmartRecruitersJobAdSections(
+        [property: JsonPropertyName("companyDescription")] SmartRecruitersSection? CompanyDescription,
+        [property: JsonPropertyName("jobDescription")] SmartRecruitersSection? JobDescription,
+        [property: JsonPropertyName("qualifications")] SmartRecruitersSection? Qualifications,
+        [property: JsonPropertyName("additionalInformation")] SmartRecruitersSection? AdditionalInformation);
+
+    private record SmartRecruitersSection(
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("text")] string? Text);
+
+    private record SmartRecruitersCompany(
+        [property: JsonPropertyName("name")] string? Name);
 
     private record SmartRecruitersLabel(
         [property: JsonPropertyName("label")] string? Label);
@@ -233,5 +336,7 @@ public class SmartRecruitersCollector(
     private record SmartRecruitersLocation(
         [property: JsonPropertyName("city")] string? City,
         [property: JsonPropertyName("country")] string? Country,
-        [property: JsonPropertyName("remote")] bool? Remote);
+        [property: JsonPropertyName("fullLocation")] string? FullLocation,
+        [property: JsonPropertyName("remote")] bool? Remote,
+        [property: JsonPropertyName("hybrid")] bool? Hybrid);
 }

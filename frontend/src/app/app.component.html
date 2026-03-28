@@ -4,8 +4,26 @@
   <a mat-button routerLink="/dashboard" routerLinkActive="active-link">Dashboard</a>
   <a mat-button routerLink="/jobs" routerLinkActive="active-link">Jobs</a>
   <a mat-button routerLink="/companies" routerLinkActive="active-link">Companies</a>
+  <a mat-button routerLink="/analysis" routerLinkActive="active-link">Analysis</a>
+  <mat-button-toggle-group class="location-toggle" [value]="locationFilter.usOnly() ? 'us' : 'all'" (change)="locationFilter.usOnly.set($event.value === 'us')">
+    <mat-button-toggle value="us">US</mat-button-toggle>
+    <mat-button-toggle value="all">International</mat-button-toggle>
+  </mat-button-toggle-group>
 </mat-toolbar>
 
-<main class="content">
-  <router-outlet />
-</main>
+<div class="app-layout">
+  <main class="main-column">
+    <router-outlet />
+  </main>
+
+  <aside class="chat-column">
+    <div class="chat-column-header">AI Insights</div>
+    <app-ai-chat />
+  </aside>
+</div>
+
+<!-- Mobile only: FAB to open chat dialog -->
+<button mat-fab extended color="primary" class="chat-fab" (click)="openChatDialog()">
+  <mat-icon>smart_toy</mat-icon>
+  Ask AI about job questions
+</button>

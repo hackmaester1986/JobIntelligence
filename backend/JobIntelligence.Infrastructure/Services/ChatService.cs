@@ -63,7 +63,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         }
     ];
 
-    public async Task<string> ChatAsync(List<(string Role, string Content)> history, CancellationToken ct)
+    public async Task<string> ChatAsync(List<(string Role, string Content)> history, bool? isUs = null, CancellationToken ct = default)
     {
         var messages = history.Select(m => new MessageParam
         {
@@ -115,10 +115,10 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
 
                     var result = tu.Name switch
                     {
-                        "search_jobs"    => await ExecuteSearchJobs(tu.Input, ct),
-                        "get_companies"  => await ExecuteGetCompanies(tu.Input, ct),
-                        "get_stats"      => await ExecuteGetStats(ct),
-                        "get_job_trends" => await ExecuteGetJobTrends(tu.Input, ct),
+                        "search_jobs"    => await ExecuteSearchJobs(tu.Input, isUs, ct),
+                        "get_companies"  => await ExecuteGetCompanies(tu.Input, isUs, ct),
+                        "get_stats"      => await ExecuteGetStats(isUs, ct),
+                        "get_job_trends" => await ExecuteGetJobTrends(tu.Input, isUs, ct),
                         _                => """{"error":"unknown tool"}"""
                     };
 
@@ -135,7 +135,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         }
     }
 
-    private async Task<string> ExecuteSearchJobs(IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct)
+    private async Task<string> ExecuteSearchJobs(IReadOnlyDictionary<string, JsonElement> input, bool? isUs, CancellationToken ct)
     {
         var q = input.TryGetValue("q", out var qProp) ? qProp.GetString() : null;
         var seniority = input.TryGetValue("seniority", out var sProp) ? sProp.GetString() : null;
@@ -144,7 +144,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
             : null;
         var limit = input.TryGetValue("limit", out var lProp) ? lProp.GetInt32() : 10;
 
-        var query = db.JobPostings.Where(j => j.IsActive).AsQueryable();
+        var query = db.JobPostings.Where(j => j.IsActive && j.Company.IsTechHiring != false).AsQueryable();
 
         if (!string.IsNullOrEmpty(q))
             query = query.Where(j => EF.Functions.ILike(j.Title, $"%{q}%")
@@ -155,6 +155,9 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
 
         if (isRemote.HasValue)
             query = query.Where(j => j.IsRemote == isRemote.Value);
+
+        if (isUs == true)
+            query = query.Where(j => j.IsUsPosting == true || j.IsUsPosting == null);
 
         var jobs = await query
             .OrderByDescending(j => j.FirstSeenAt)
@@ -176,12 +179,12 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         return JsonSerializer.Serialize(jobs);
     }
 
-    private async Task<string> ExecuteGetCompanies(IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct)
+    private async Task<string> ExecuteGetCompanies(IReadOnlyDictionary<string, JsonElement> input, bool? isUs, CancellationToken ct)
     {
         var q = input.TryGetValue("q", out var qProp) ? qProp.GetString() : null;
         var limit = input.TryGetValue("limit", out var lProp) ? lProp.GetInt32() : 10;
 
-        var query = db.Companies.Where(c => c.JobPostings.Any(j => j.IsActive)).AsQueryable();
+        var query = db.Companies.Where(c => c.IsTechHiring != false && c.JobPostings.Any(j => j.IsActive)).AsQueryable();
 
         if (!string.IsNullOrEmpty(q))
             query = query.Where(c => EF.Functions.ILike(c.CanonicalName, $"%{q}%"));
@@ -209,26 +212,30 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         return JsonSerializer.Serialize(companies);
     }
 
-    private async Task<string> ExecuteGetStats(CancellationToken ct)
+    private async Task<string> ExecuteGetStats(bool? isUs, CancellationToken ct)
     {
-        var totalActiveJobs = await db.JobPostings.CountAsync(j => j.IsActive, ct);
-        var totalCompanies = await db.Companies.CountAsync(c => c.JobPostings.Any(j => j.IsActive), ct);
-        var remoteJobs = await db.JobPostings.CountAsync(j => j.IsActive && j.IsRemote, ct);
+        var baseQuery = db.JobPostings.Where(j => j.IsActive && j.Company.IsTechHiring != false);
+        if (isUs == true)
+            baseQuery = baseQuery.Where(j => j.IsUsPosting == true || j.IsUsPosting == null);
+
+        var totalActiveJobs = await baseQuery.CountAsync(ct);
+        var totalCompanies = await db.Companies.CountAsync(c => c.IsTechHiring != false && c.JobPostings.Any(j => j.IsActive), ct);
+        var remoteJobs = await baseQuery.CountAsync(j => j.IsRemote, ct);
 
         var topCompanies = await db.Companies
-            .Where(c => c.JobPostings.Any(j => j.IsActive))
+            .Where(c => c.IsTechHiring != false && c.JobPostings.Any(j => j.IsActive))
             .Select(c => new { Name = c.CanonicalName, JobCount = c.JobPostings.Count(j => j.IsActive) })
             .OrderByDescending(x => x.JobCount).Take(5)
             .ToListAsync(ct);
 
-        var bySeniority = await db.JobPostings
-            .Where(j => j.IsActive && j.SeniorityLevel != null)
+        var bySeniority = await baseQuery
+            .Where(j => j.SeniorityLevel != null)
             .GroupBy(j => j.SeniorityLevel!)
             .Select(g => new { Level = g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
-        var topDepartments = await db.JobPostings
-            .Where(j => j.IsActive && j.Department != null)
+        var topDepartments = await baseQuery
+            .Where(j => j.Department != null)
             .GroupBy(j => j.Department!)
             .Select(g => new { Department = g.Key, Count = g.Count() })
             .OrderByDescending(x => x.Count).Take(10)
@@ -237,7 +244,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         return JsonSerializer.Serialize(new { totalActiveJobs, totalCompanies, remoteJobs, topCompanies, bySeniority, topDepartments });
     }
 
-    private async Task<string> ExecuteGetJobTrends(IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct)
+    private async Task<string> ExecuteGetJobTrends(IReadOnlyDictionary<string, JsonElement> input, bool? isUs, CancellationToken ct)
     {
         var company = input.TryGetValue("company", out var cProp) ? cProp.GetString() : null;
         var range    = input.TryGetValue("range",   out var rProp) ? rProp.GetString() : "1m";
@@ -264,6 +271,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
               AND s.snapshot_at > (
                   SELECT MIN(snapshot_at) FROM company_job_snapshots WHERE company_id = s.company_id
               )
+              AND c.is_tech_hiring IS DISTINCT FROM FALSE
               {companyFilter}
             GROUP BY {trunc}
             ORDER BY 1

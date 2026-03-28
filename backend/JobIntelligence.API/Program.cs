@@ -11,6 +11,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<CollectionSchedulerService>();
+builder.Services.AddMemoryCache();
 
 builder.Services.AddCors(options =>
 {

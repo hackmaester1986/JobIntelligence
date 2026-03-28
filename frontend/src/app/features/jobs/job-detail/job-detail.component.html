@@ -1,4 +1,4 @@
-<a mat-button routerLink="/jobs">&larr; Back to Jobs</a>
+<button mat-button (click)="goBack()">&larr; Back</button>
 
 <div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
 
@@ -19,7 +19,7 @@
       <p *ngIf="j.salaryDisclosed && j.salaryMin">
         <strong>Salary:</strong> {{ j.salaryCurrency }} {{ j.salaryMin | number }} – {{ j.salaryMax | number }} / {{ j.salaryPeriod }}
       </p>
-      <div *ngIf="j.description" class="description" [innerHTML]="j.description"></div>
+      <div *ngIf="j.descriptionHtml || j.description" class="description" [innerHTML]="j.descriptionHtml || j.description"></div>
     </mat-card-content>
     <mat-card-actions *ngIf="j.applyUrl">
       <a mat-raised-button color="primary" [href]="j.applyUrl" target="_blank">Apply Now</a>

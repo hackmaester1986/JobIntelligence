@@ -7,7 +7,7 @@
 }
 
 .filters-panel {
-  width: 200px;
+  width: 235px;
   flex-shrink: 0;
   background: #fafafa;
   border: 1px solid rgba(0,0,0,.08);
@@ -30,6 +30,7 @@
   gap: 4px;
   max-height: 70vh;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .industry-list mat-checkbox {

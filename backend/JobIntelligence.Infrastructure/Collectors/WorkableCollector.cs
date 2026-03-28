@@ -147,6 +147,7 @@ public class WorkableCollector(
             LocationCountry = job.Location?.Country ?? loc.Country,
             IsRemote = isRemote,
             IsHybrid = isHybrid,
+            IsUsPosting = UsLocationClassifier.Classify(Truncate(locationText, 500)),
             SalaryMin = salary.Min,
             SalaryMax = salary.Max,
             SalaryCurrency = salary.Currency,
@@ -183,6 +184,7 @@ public class WorkableCollector(
         existing.LocationCountry = incoming.LocationCountry;
         existing.IsRemote = incoming.IsRemote;
         existing.IsHybrid = incoming.IsHybrid;
+        existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.EmploymentType = incoming.EmploymentType;
         existing.ApplyUrl = incoming.ApplyUrl;

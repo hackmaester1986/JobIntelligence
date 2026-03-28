@@ -39,6 +39,13 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
                     crawlResult.GreenhouseSlugs, crawlResult.LeverSlugs, crawlResult.AshbySlugs,
                     crawlResult.SmartRecruitersSlugs, crawlResult.WorkdayEntries, dryRun, CancellationToken.None);
 
+                var sources = new[] { "Greenhouse", "Lever", "Ashby", "SmartRecruiters", "Workday" };
+                foreach (var s in sources)
+                {
+                    var v = result.ValidatedPerSource.GetValueOrDefault(s);
+                    var f = result.FailedPerSource.GetValueOrDefault(s);
+                    logger.LogInformation("  {Source}: validated={V} failed={F}", s, v, f);
+                }
                 logger.LogInformation(
                     "Common Crawl discovery complete (dryRun={DryRun}): validated={A} skipped={S} failed={F}",
                     dryRun, result.Added, result.Skipped, result.Failed);
@@ -76,6 +83,32 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         });
 
         return Accepted(new { message = $"Wikidata enrichment started for batch of {batchSize}" });
+    }
+
+    [HttpPost("web-enrich")]
+    public IActionResult EnrichFromWeb([FromQuery] int batchSize = 20)
+    {
+        logger.LogInformation("Web enrichment triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var enricher = scope.ServiceProvider.GetRequiredService<IWebEnrichmentService>();
+
+            try
+            {
+                var result = await enricher.EnrichCompaniesAsync(batchSize, CancellationToken.None);
+                logger.LogInformation(
+                    "Web enrichment complete: processed={P} enriched={E} notFound={N} failed={F}",
+                    result.Processed, result.Enriched, result.NotFound, result.Failed);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Web enrichment failed");
+            }
+        });
+
+        return Accepted(new { message = $"Web enrichment started for batch of {batchSize}" });
     }
 
     [HttpPost("description-enrich")]

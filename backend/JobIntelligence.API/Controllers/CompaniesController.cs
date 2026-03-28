@@ -13,7 +13,7 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
     public async Task<IActionResult> GetIndustries(CancellationToken ct)
     {
         var industries = await db.Companies
-            .Where(c => c.Industry != null)
+            .Where(c => c.Industry != null && c.IsTechHiring != false)
             .Select(c => c.Industry!)
             .Distinct()
             .OrderBy(i => i)
@@ -29,7 +29,7 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
         [FromQuery] int pageSize = 50,
         CancellationToken ct = default)
     {
-        var query = db.Companies.AsQueryable();
+        var query = db.Companies.Where(c => c.IsTechHiring != false).AsQueryable();
 
         if (!string.IsNullOrEmpty(q))
             query = query.Where(c => EF.Functions.ILike(c.CanonicalName, $"%{q}%"));
@@ -137,11 +137,16 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
     }
 
     [HttpGet("{id:long}/jobs")]
-    public async Task<IActionResult> GetCompanyJobs(long id, CancellationToken ct)
+    public async Task<IActionResult> GetCompanyJobs(long id, [FromQuery] bool? isUs, CancellationToken ct)
     {
-        var jobs = await db.JobPostings
+        var query = db.JobPostings
             .Include(j => j.Source)
-            .Where(j => j.CompanyId == id && j.IsActive)
+            .Where(j => j.CompanyId == id && j.IsActive);
+
+        if (isUs == true)
+            query = query.Where(j => j.IsUsPosting == true || j.IsUsPosting == null);
+
+        var jobs = await query
             .OrderByDescending(j => j.FirstSeenAt)
             .Select(j => new
             {

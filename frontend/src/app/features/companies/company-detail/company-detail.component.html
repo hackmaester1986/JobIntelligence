@@ -5,7 +5,6 @@
 <ng-container *ngIf="company() as c">
   <mat-card class="header-card">
     <mat-card-header>
-      <img mat-card-avatar *ngIf="c.logoUrl" [src]="c.logoUrl" [alt]="c.canonicalName" style="object-fit:contain" />
       <mat-card-title>{{ c.canonicalName }}</mat-card-title>
       <mat-card-subtitle>
         <span *ngIf="c.industry">{{ c.industry }}</span>

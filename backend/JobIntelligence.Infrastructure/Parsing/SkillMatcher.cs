@@ -37,10 +37,13 @@ public static class SkillMatcher
 
     private static bool IsMatch(string text, string term)
     {
-        // Use word boundary for terms >= 3 chars, exact case-insensitive for short ones
-        var pattern = term.Length >= 3
+        // Word boundary works well for normal words.
+        // For short or symbol-containing terms (C#, C++, F#, Go, R) use a stricter
+        // look-around that also excludes digits and underscores on either side so that
+        // codes like "C#1234" or "job-code-C#2" don't produce false positives.
+        var pattern = term.Length >= 3 && !term.Any(c => !char.IsLetterOrDigit(c))
             ? $@"\b{Regex.Escape(term)}\b"
-            : $@"(?<![a-zA-Z]){Regex.Escape(term)}(?![a-zA-Z])";
+            : $@"(?<![a-zA-Z0-9_]){Regex.Escape(term)}(?![a-zA-Z0-9_])";
 
         return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase);
     }

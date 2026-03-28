@@ -32,11 +32,13 @@ export interface JobDetail extends Job {
 
 export interface JobFilters {
   q?: string;
+  skill?: string;
   companyId?: number;
   isRemote?: boolean;
+  isUs?: boolean;
   seniority?: string;
   department?: string;
-  industry?: string;
+  industries?: string[];
   page?: number;
   pageSize?: number;
 }

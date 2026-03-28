@@ -21,8 +21,8 @@ export class CompaniesService {
     return this.api.get<Company>(`/companies/${id}`);
   }
 
-  getCompanyJobs(id: number): Observable<Job[]> {
-    return this.api.get<Job[]>(`/companies/${id}/jobs`);
+  getCompanyJobs(id: number, isUs?: boolean): Observable<Job[]> {
+    return this.api.get<Job[]>(`/companies/${id}/jobs`, isUs != null ? { isUs } : undefined);
   }
 
   getSnapshots(id: number, range: string): Observable<SnapshotPoint[]> {

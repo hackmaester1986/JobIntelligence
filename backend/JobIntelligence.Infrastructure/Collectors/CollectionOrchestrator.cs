@@ -1,8 +1,10 @@
 using JobIntelligence.Core.Entities;
 using JobIntelligence.Core.Interfaces;
+using JobIntelligence.Infrastructure.Parsing;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using static JobIntelligence.Infrastructure.Parsing.SkillMatcher;
 
 namespace JobIntelligence.Infrastructure.Collectors;
 
@@ -40,17 +42,52 @@ public class CollectionOrchestrator(
             var companies = await GetCompaniesForSource(collector.SourceName, ct);
             logger.LogInformation("Starting {Source} collection for {Count} companies", collector.SourceName, companies.Count);
 
+            // Load skill taxonomy once per source run for inline skill tagging
+            var skillEntries = (await db.SkillTaxonomies
+                .Select(s => new { s.Id, s.CanonicalName, s.Aliases })
+                .ToListAsync(ct))
+                .Select(s => new SkillEntry(
+                    s.Id,
+                    s.CanonicalName,
+                    s.Aliases.RootElement.EnumerateArray()
+                        .Select(a => a.GetString() ?? "").Where(a => a.Length > 0).ToArray()))
+                .ToList();
+
             int totalFetched = 0, totalNew = 0, totalUpdated = 0, totalRemoved = 0;
 
             foreach (var company in companies)
             {
                 try
                 {
+                    var collectStartedAt = DateTime.UtcNow;
                     var result = await collector.CollectAsync(company, ct);
                     totalFetched += result.Fetched;
                     totalNew += result.New;
                     totalUpdated += result.Updated;
                     totalRemoved += result.Removed;
+
+                    if (result.New > 0)
+                    {
+                        var newPostings = await db.JobPostings
+                            .Where(p => p.CompanyId == company.Id && p.SourceId == source.Id
+                                        && p.FirstSeenAt >= collectStartedAt)
+                            .Select(p => new { p.Id, p.Description })
+                            .ToListAsync(ct);
+
+                        foreach (var posting in newPostings)
+                        {
+                            foreach (var match in Match(posting.Description, skillEntries))
+                            {
+                                db.JobSkills.Add(new JobSkill
+                                {
+                                    JobPostingId = posting.Id,
+                                    SkillId = match.SkillId,
+                                    IsRequired = true,
+                                    ExtractionMethod = "keyword"
+                                });
+                            }
+                        }
+                    }
 
                     run.JobsFetched = totalFetched;
                     run.JobsNew = totalNew;
@@ -95,21 +132,21 @@ public class CollectionOrchestrator(
         return sourceName switch
         {
             "greenhouse" => await db.Companies
-                .Where(c => c.GreenhouseBoardToken != null)
+                .Where(c => c.GreenhouseBoardToken != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
             "lever" => await db.Companies
-                .Where(c => c.LeverCompanySlug != null)
+                .Where(c => c.LeverCompanySlug != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
             "ashby" => await db.Companies
-                .Where(c => c.AshbyBoardSlug != null)
+                .Where(c => c.AshbyBoardSlug != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
             "smartrecruiters" => await db.Companies
-                .Where(c => c.SmartRecruitersSlug != null)
+                .Where(c => c.SmartRecruitersSlug != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
             "workday" => await db.Companies
-                .Where(c => c.WorkdayHost != null && c.WorkdayCareerSite != null)
+                .Where(c => c.WorkdayHost != null && c.WorkdayCareerSite != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
-            _ => await db.Companies.ToListAsync(ct)
+            _ => await db.Companies.Where(c => c.IsTechHiring != false).ToListAsync(ct)
         };
     }
 }

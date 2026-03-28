@@ -1,4 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
+import { Location } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { DecimalPipe, NgIf } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
@@ -17,9 +18,12 @@ import { JobsService } from '../../../core/services/jobs.service';
 export class JobDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private jobsService = inject(JobsService);
+  private location = inject(Location);
 
   job = signal<JobDetail | null>(null);
   loading = signal(true);
+
+  goBack(): void { this.location.back(); }
 
   ngOnInit(): void {
     const id = Number(this.route.snapshot.paramMap.get('id'));

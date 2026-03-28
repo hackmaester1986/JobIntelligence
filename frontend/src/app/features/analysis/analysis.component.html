@@ -1,0 +1,49 @@
+<div class="page-header">
+  <h1>Company Analysis</h1>
+  <p class="subtitle">Distribution of company attributes across all tracked companies</p>
+</div>
+
+<div class="metric-row">
+  <span class="metric-label">Choose a metric to view</span>
+  <mat-form-field appearance="outline" class="metric-select">
+    <mat-select [(ngModel)]="selectedMetric" (ngModelChange)="onMetricChange()">
+      <mat-option *ngFor="let m of metrics" [value]="m.value">{{ m.label }}</mat-option>
+    </mat-select>
+  </mat-form-field>
+</div>
+
+<div class="layout">
+  <aside class="filters-panel">
+    <p class="filter-heading">Company Size</p>
+    <div class="size-list">
+      <mat-checkbox
+        *ngFor="let size of availableSizes()"
+        [checked]="isSizeSelected(size)"
+        (change)="toggleSize(size)">
+        {{ size }}
+      </mat-checkbox>
+    </div>
+  </aside>
+
+  <div class="main-content">
+    <div *ngIf="loading()" class="loading-wrap">
+      <mat-spinner></mat-spinner>
+    </div>
+
+    <mat-card *ngIf="!loading()" class="chart-card">
+      <mat-card-header>
+        <mat-card-title>{{ currentMetricLabel }}</mat-card-title>
+        <mat-card-subtitle>Number of companies per bucket · {{ locationFilter.usOnly() ? 'US jobs' : 'All jobs' }}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="chart-wrap">
+          <canvas baseChart
+            [data]="chartData()"
+            [options]="chartOptions"
+            type="bar">
+          </canvas>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

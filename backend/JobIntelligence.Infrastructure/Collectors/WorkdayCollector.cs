@@ -93,66 +93,63 @@ public class WorkdayCollector(
         }
 
         var detailBaseUrl = $"https://{company.WorkdayHost}/wday/cxs/{tenant}/{company.WorkdayCareerSite}/job";
-        bool detailFetchFailed = false;
-        var detailFailedCompanies = new List<string>();
 
-        foreach (var job in fetched)
+        // Fetch details for new jobs in parallel, update existing jobs sequentially
+        var newJobs      = fetched.Where(j => !existingMap.ContainsKey(JobId(j.ExternalPath))).ToList();
+        var existingJobs = fetched.Where(j =>  existingMap.ContainsKey(JobId(j.ExternalPath))).ToList();
+
+        var semaphore = new SemaphoreSlim(3); // conservative for Workday
+        var detailTasks = newJobs.Select(async job =>
         {
             var externalId = JobId(job.ExternalPath);
+            await semaphore.WaitAsync(ct);
+            try   { return (Job: job, ExternalId: externalId, Detail: await FetchDetailAsync(client, detailBaseUrl, externalId, company.CanonicalName, ct)); }
+            finally { semaphore.Release(); }
+        });
 
-            if (!existingMap.TryGetValue(externalId, out var existing))
+        var newJobResults = await Task.WhenAll(detailTasks);
+
+        foreach (var (job, externalId, detail) in newJobResults)
+        {
+            if (detail == null) continue;
+
+            var mapped = MapToPosting(job, detail, source.Id, company.Id, company.WorkdayHost!, company.WorkdayCareerSite);
+            if (mapped.DescriptionHash != null && removedByHash.TryGetValue(mapped.DescriptionHash, out var prev))
             {
-                if (detailFetchFailed) continue;
-
-                var detail = await FetchDetailAsync(client, detailBaseUrl, externalId, company.CanonicalName, ct);
-                if (detail == null)
-                {
-                    detailFetchFailed = true;
-                    detailFailedCompanies.Add(company.CanonicalName);
-                    logger.LogWarning("Workday [{Company}]: detail fetch failed, skipping all new job postings for this company", company.CanonicalName);
-                    continue;
-                }
-
-                var mapped = MapToPosting(job, detail, source.Id, company.Id, company.WorkdayHost!);
-
-                if (mapped.DescriptionHash != null && removedByHash.TryGetValue(mapped.DescriptionHash, out var prev))
-                {
-                    mapped.PreviousPostingId = prev.Id;
-                    mapped.RepostCount = (short)(prev.RepostCount + 1);
-                }
-                db.JobPostings.Add(mapped);
-                newCount++;
+                mapped.PreviousPostingId = prev.Id;
+                mapped.RepostCount = (short)(prev.RepostCount + 1);
             }
-            else
+            db.JobPostings.Add(mapped);
+            newCount++;
+        }
+
+        foreach (var job in existingJobs)
+        {
+            var externalId = JobId(job.ExternalPath);
+            var existing   = existingMap[externalId];
+            var mapped     = MapToPosting(job, null, source.Id, company.Id, company.WorkdayHost!, company.WorkdayCareerSite);
+            var changed    = DetectChanges(existing, mapped);
+            if (changed.Count > 0)
             {
-                var mapped = MapToPosting(job, null, source.Id, company.Id, company.WorkdayHost!);
-                var changed = DetectChanges(existing, mapped);
-                if (changed.Count > 0)
+                db.JobSnapshots.Add(new JobSnapshot
                 {
-                    db.JobSnapshots.Add(new JobSnapshot
-                    {
-                        JobPostingId = existing.Id,
-                        SnapshotAt = DateTime.UtcNow,
-                        ChangedFields = JsonDocument.Parse(JsonSerializer.Serialize(changed)),
-                        RawData = mapped.RawData
-                    });
-                    ApplyChanges(existing, mapped);
-                    updatedCount++;
-                }
-
-                existing.LastSeenAt = DateTime.UtcNow;
-                existing.IsActive = true;
-                existing.RemovedAt = null;
+                    JobPostingId  = existing.Id,
+                    SnapshotAt    = DateTime.UtcNow,
+                    ChangedFields = JsonDocument.Parse(JsonSerializer.Serialize(changed)),
+                    RawData = mapped.RawData
+                });
+                ApplyChanges(existing, mapped);
+                updatedCount++;
             }
+
+            existing.LastSeenAt = DateTime.UtcNow;
+            existing.IsActive   = true;
+            existing.RemovedAt  = null;
         }
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Workday [{Company}]: fetched={F} new={N} updated={U} removed={R}",
             company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
-
-        if (detailFailedCompanies.Count > 0)
-            logger.LogWarning("Workday: detail fetch failed for {Count} company/companies: {Companies}",
-                detailFailedCompanies.Count, string.Join(", ", detailFailedCompanies));
 
         return new CollectionResult(company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
     }
@@ -191,7 +188,7 @@ public class WorkdayCollector(
         }
     }
 
-    private static JobPosting MapToPosting(WorkdayJobPosting job, WorkdayJobDetail? detail, int sourceId, long companyId, string host)
+    private static JobPosting MapToPosting(WorkdayJobPosting job, WorkdayJobDetail? detail, int sourceId, long companyId, string host, string? careerSite)
     {
         var location = job.LocationsText ?? string.Empty;
         var loc = LocationParser.Parse(location);
@@ -211,9 +208,13 @@ public class WorkdayCollector(
             _ => null
         };
 
+        // Some Workday tenants return externalPath as "/job/..." without the career site prefix.
+        // In that case we need to inject the career site: "/{careerSite}/job/..."
         var applyUrl = string.IsNullOrEmpty(job.ExternalPath)
             ? null
-            : $"https://{host}{job.ExternalPath}";
+            : job.ExternalPath.StartsWith("/job/", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(careerSite)
+                ? $"https://{host}/{careerSite}{job.ExternalPath}"
+                : $"https://{host}{job.ExternalPath}";
 
         var descriptionHtml = detail?.JobPostingInfo?.JobDescription;
         var description = StripHtml(descriptionHtml);
@@ -233,6 +234,7 @@ public class WorkdayCollector(
             LocationCountry = loc.Country,
             IsRemote = loc.IsRemote,
             IsHybrid = loc.IsHybrid,
+            IsUsPosting = UsLocationClassifier.Classify(Truncate(location, 500)),
             SalaryMin = salary2.Disclosed ? salary2.Min : salary.Min,
             SalaryMax = salary2.Disclosed ? salary2.Max : salary.Max,
             SalaryCurrency = salary2.Disclosed ? salary2.Currency : salary.Currency,
@@ -281,6 +283,7 @@ public class WorkdayCollector(
         existing.LocationCountry = incoming.LocationCountry;
         existing.IsRemote = incoming.IsRemote;
         existing.IsHybrid = incoming.IsHybrid;
+        existing.IsUsPosting = incoming.IsUsPosting;
         existing.EmploymentType = incoming.EmploymentType;
         existing.ApplyUrl = incoming.ApplyUrl;
         existing.UpdatedAt = DateTime.UtcNow;

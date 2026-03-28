@@ -15,16 +15,19 @@
       </div>
     </div>
   </div>
-  <div class="input-row">
+  <div class="input-area">
     <mat-form-field appearance="outline" class="input-field">
-      <input matInput
-             placeholder="Ask about job trends, top companies, seniority..."
-             [value]="inputText()"
-             (input)="inputText.set($any($event.target).value)"
-             (keydown)="onKeyDown($event)"
-             [disabled]="loading()" />
+      <textarea matInput
+                cdkTextareaAutosize
+                cdkAutosizeMinRows="3"
+                cdkAutosizeMaxRows="6"
+                placeholder="Ask about job trends, top companies, seniority..."
+                [value]="inputText()"
+                (input)="inputText.set($any($event.target).value)"
+                (keydown)="onKeyDown($event)"
+                [disabled]="loading()"></textarea>
     </mat-form-field>
-    <button mat-raised-button color="primary"
+    <button mat-raised-button color="primary" class="send-button"
             (click)="send()"
             [disabled]="!inputText().trim() || loading()">
       Send

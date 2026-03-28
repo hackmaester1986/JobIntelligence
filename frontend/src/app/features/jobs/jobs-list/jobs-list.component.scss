@@ -1,4 +1,48 @@
 .search-bar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+
+.layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.filters-panel {
+  width: 235px;
+  flex-shrink: 0;
+  background: #fafafa;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.filter-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: rgba(0,0,0,.54);
+  margin: 0 0 12px;
+}
+
+.industry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.industry-list mat-checkbox { font-size: 13px; }
+
+.main-content { flex: 1; min-width: 0; }
+
+@media (max-width: 700px) {
+  .layout { flex-direction: column; }
+  .filters-panel { width: 100%; box-sizing: border-box; }
+  .industry-list { max-height: 200px; }
+}
+
 .total { color: rgba(0,0,0,.54); margin-bottom: 16px; }
 .jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-bottom: 24px; }
 .job-card { cursor: pointer; transition: box-shadow .2s; }

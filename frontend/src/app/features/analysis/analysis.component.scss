@@ -1,0 +1,75 @@
+.page-header {
+  margin-bottom: 24px;
+
+  h1 { margin: 0 0 4px; }
+  .subtitle { color: rgba(0,0,0,.54); margin: 0; font-size: 14px; }
+}
+
+.layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.filters-panel {
+  width: 200px;
+  flex-shrink: 0;
+  background: #fafafa;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.filter-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: rgba(0,0,0,.54);
+  margin: 0 0 8px;
+}
+
+.metric-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(0,0,0,.7);
+  white-space: nowrap;
+}
+
+.metric-select { width: 280px; margin-bottom: -1.25em; }
+
+.size-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-x: hidden;
+
+  mat-checkbox { font-size: 13px; }
+}
+
+.main-content { flex: 1; min-width: 0; }
+
+.loading-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 64px;
+}
+
+.chart-card { width: 100%; }
+
+.chart-wrap {
+  height: 520px;
+  position: relative;
+}
+
+@media (max-width: 700px) {
+  .layout { flex-direction: column; }
+  .filters-panel { width: 100%; box-sizing: border-box; }
+}

@@ -35,6 +35,14 @@ public class GreenhouseCollector(
             var response = await client.GetFromJsonAsync<GreenhouseResponse>(url, ct);
             fetched = response?.Jobs ?? new List<GreenhouseJob>();
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogWarning("Greenhouse board not found for {Company} (token: {Token}) — clearing token",
+                company.CanonicalName, company.GreenhouseBoardToken);
+            company.GreenhouseBoardToken = null;
+            await db.SaveChangesAsync(ct);
+            return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, "Board not found (404) — token cleared");
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch jobs for {Company}", company.CanonicalName);
@@ -107,6 +115,11 @@ public class GreenhouseCollector(
             }
         }
 
+        // Enrich company from API data
+        var firstJob = fetched.FirstOrDefault();
+        if (!string.IsNullOrEmpty(firstJob?.CompanyName))
+            company.CanonicalName = firstJob.CompanyName;
+
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Greenhouse [{Company}]: fetched={F} new={N} updated={U} removed={R}",
             company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
@@ -116,9 +129,17 @@ public class GreenhouseCollector(
 
     private static JobPosting MapToPosting(GreenhouseJob job, int sourceId, long companyId)
     {
-        var location = job.Location?.Name ?? string.Empty;
-        var loc = LocationParser.Parse(location);
-        var salary = Parse(job.Content);
+        // offices[0].location ("Bellevue, Washington, United States") parses better than location.name ("Bellevue Office, ...")
+        var officeLocation = job.Offices?.FirstOrDefault()?.Location;
+        var locationRaw = officeLocation ?? job.Location?.Name ?? string.Empty;
+        var loc = LocationParser.Parse(locationRaw);
+
+        // content is HTML-entity-encoded (&lt;div&gt;) — decode to real HTML before parsing/storing
+        var descriptionHtml = string.IsNullOrEmpty(job.Content)
+            ? null
+            : System.Net.WebUtility.HtmlDecode(job.Content);
+        var description = StripHtml(descriptionHtml);
+        var salary = Parse(descriptionHtml);
 
         return new JobPosting
         {
@@ -128,23 +149,26 @@ public class GreenhouseCollector(
             Title = job.Title ?? string.Empty,
             SeniorityLevel = TitleParser.Parse(job.Title),
             Department = job.Departments?.FirstOrDefault()?.Name,
-            LocationRaw = Truncate(location, 500),
+            LocationRaw = Truncate(locationRaw, 500),
             LocationCity = loc.City,
             LocationState = loc.State,
             LocationCountry = loc.Country,
             IsRemote = loc.IsRemote,
             IsHybrid = loc.IsHybrid,
+            IsUsPosting = UsLocationClassifier.Classify(Truncate(locationRaw, 500)),
             SalaryMin = salary.Min,
             SalaryMax = salary.Max,
             SalaryCurrency = salary.Currency,
             SalaryPeriod = salary.Period,
             SalaryDisclosed = salary.Disclosed,
-            DescriptionHtml = job.Content,
-            Description = StripHtml(job.Content),
-            DescriptionHash = Compute(StripHtml(job.Content)),
+            DescriptionHtml = descriptionHtml,
+            Description = description,
+            DescriptionHash = Compute(description),
             ApplyUrl = job.AbsoluteUrl,
             ApplyUrlDomain = ExtractDomain(job.AbsoluteUrl),
-            PostedAt = job.UpdatedAt.HasValue ? DateTime.SpecifyKind(job.UpdatedAt.Value, DateTimeKind.Utc) : (DateTime?)null,
+            PostedAt = job.FirstPublished.HasValue
+                ? DateTime.SpecifyKind(job.FirstPublished.Value, DateTimeKind.Utc)
+                : null,
             IsActive = true,
             RawData = JsonDocument.Parse(JsonSerializer.Serialize(job))
         };
@@ -170,6 +194,7 @@ public class GreenhouseCollector(
         existing.LocationCountry = incoming.LocationCountry;
         existing.IsRemote = incoming.IsRemote;
         existing.IsHybrid = incoming.IsHybrid;
+        existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.ApplyUrl = incoming.ApplyUrl;
         existing.ApplyUrlDomain = incoming.ApplyUrlDomain;
@@ -193,7 +218,7 @@ public class GreenhouseCollector(
     {
         if (string.IsNullOrEmpty(html)) return null;
         return System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ")
-            .Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">").Trim();
+            .Replace("&amp;", "&").Replace("&nbsp;", " ").Trim();
     }
 
     // Greenhouse API models
@@ -201,12 +226,18 @@ public class GreenhouseCollector(
     private record GreenhouseJob(
         [property: JsonPropertyName("id")] long Id,
         [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("company_name")] string? CompanyName,
         [property: JsonPropertyName("content")] string? Content,
         [property: JsonPropertyName("absolute_url")] string? AbsoluteUrl,
         [property: JsonPropertyName("location")] GreenhouseLocation? Location,
+        [property: JsonPropertyName("offices")] List<GreenhouseOffice>? Offices,
         [property: JsonPropertyName("departments")] List<GreenhouseDepartment>? Departments,
+        [property: JsonPropertyName("first_published")] DateTime? FirstPublished,
         [property: JsonPropertyName("updated_at")] DateTime? UpdatedAt
     );
     private record GreenhouseLocation([property: JsonPropertyName("name")] string? Name);
+    private record GreenhouseOffice(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("location")] string? Location);
     private record GreenhouseDepartment([property: JsonPropertyName("name")] string? Name);
 }

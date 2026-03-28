@@ -7,7 +7,7 @@ import { ApiService } from './api.service';
 export class StatsService {
   private api = inject(ApiService);
 
-  getStats(): Observable<DashboardStats> {
-    return this.api.get<DashboardStats>('/stats');
+  getStats(isUs?: boolean): Observable<DashboardStats> {
+    return this.api.get<DashboardStats>('/stats', isUs != null ? { isUs } : undefined);
   }
 }

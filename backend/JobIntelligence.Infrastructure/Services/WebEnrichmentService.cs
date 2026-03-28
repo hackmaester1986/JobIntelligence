@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using Anthropic;
+using Anthropic.Exceptions;
 using Anthropic.Models.Messages;
 using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Persistence;
@@ -10,23 +10,23 @@ using Microsoft.Extensions.Logging;
 
 namespace JobIntelligence.Infrastructure.Services;
 
-public class DescriptionEnrichmentService(
+public class WebEnrichmentService(
     AnthropicClient anthropic,
     ApplicationDbContext db,
-    ILogger<DescriptionEnrichmentService> logger) : IDescriptionEnrichmentService
+    ILogger<WebEnrichmentService> logger) : IWebEnrichmentService
 {
-    public async Task<DescriptionEnrichmentResult> EnrichCompaniesAsync(int batchSize = 50, CancellationToken ct = default)
+    public async Task<WebEnrichmentResult> EnrichCompaniesAsync(int batchSize = 20, CancellationToken ct = default)
     {
         int processed = 0, enriched = 0, notFound = 0, failed = 0;
 
         var companies = await db.Companies
-            .Where(c => c.DescriptionEnrichedAt == null)
+            .Where(c => c.WebEnrichedAt == null)
             .Where(c => c.JobPostings.Any(j => j.IsActive))
             .OrderBy(c => c.Id)
             .Take(batchSize)
             .ToListAsync(ct);
 
-        logger.LogInformation("Description enrichment: processing {Count} companies", companies.Count);
+        logger.LogInformation("Web enrichment: processing {Count} companies", companies.Count);
 
         foreach (var company in companies)
         {
@@ -34,28 +34,18 @@ public class DescriptionEnrichmentService(
 
             try
             {
-                var descriptions = await db.JobPostings
-                    .Where(j => j.CompanyId == company.Id && j.IsActive && (j.Description != null || j.DescriptionHtml != null))
-                    .OrderByDescending(j => j.FirstSeenAt)
-                    .Take(5)
-                    .Select(j => j.Description ?? j.DescriptionHtml)
-                    .ToListAsync(ct);
-
-                if (descriptions.Count == 0)
+                var neededFields = BuildNeededFields(company);
+                if (neededFields.Count == 0)
                 {
-                    notFound++;
-                    company.DescriptionEnrichedAt = DateTime.UtcNow;
+                    company.WebEnrichedAt = DateTime.UtcNow;
                     await db.SaveChangesAsync(ct);
                     processed++;
+                    notFound++;
+                    logger.LogDebug("Skipping {Name} — all fields already populated", company.CanonicalName);
                     continue;
                 }
 
-                var cleanedDescriptions = descriptions
-                    .Where(d => d != null)
-                    .Select(d => TruncateAndClean(d!))
-                    .ToList();
-
-                var extraction = await ExtractFromClaudeAsync(company.CanonicalName, cleanedDescriptions, ct);
+                var extraction = await SearchWithClaudeAsync(company.CanonicalName, neededFields, ct);
 
                 if (extraction == null)
                 {
@@ -65,8 +55,6 @@ public class DescriptionEnrichmentService(
                 {
                     bool anyUpdated = false;
 
-                    // Only update canonical name if Claude is highly confident AND current name looks slug-derived
-                    // (slug-derived names are all lowercase or contain hyphens/underscores with no spaces)
                     if (extraction.CanonicalName?.IsConfident() == true &&
                         extraction.CanonicalName.Confidence == "high" &&
                         IsSlugDerivedName(company.CanonicalName))
@@ -109,7 +97,7 @@ public class DescriptionEnrichmentService(
                     {
                         company.UpdatedAt = DateTime.UtcNow;
                         enriched++;
-                        logger.LogInformation("Enriched {Name} from descriptions", company.CanonicalName);
+                        logger.LogInformation("Web enriched {Name}", company.CanonicalName);
                     }
                     else
                     {
@@ -118,23 +106,30 @@ public class DescriptionEnrichmentService(
                     }
                 }
 
-                company.DescriptionEnrichedAt = DateTime.UtcNow;
+                company.WebEnrichedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync(ct);
                 processed++;
 
-                await Task.Delay(200, ct);
+                await Task.Delay(500, ct);
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
+            catch (AnthropicRateLimitException ex)
+            {
+                // Do NOT stamp WebEnrichedAt — let this company be retried next run
+                logger.LogWarning(ex, "Rate limited on {Name}, skipping without marking enriched", company.CanonicalName);
+                failed++;
+                break; // no point continuing this batch
+            }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to enrich {Name} from descriptions", company.CanonicalName);
+                logger.LogError(ex, "Failed to web enrich {Name}", company.CanonicalName);
                 failed++;
                 try
                 {
-                    company.DescriptionEnrichedAt = DateTime.UtcNow;
+                    company.WebEnrichedAt = DateTime.UtcNow;
                     await db.SaveChangesAsync(ct);
                 }
                 catch (Exception saveEx)
@@ -145,60 +140,67 @@ public class DescriptionEnrichmentService(
         }
 
         logger.LogInformation(
-            "Description enrichment complete: processed={P} enriched={E} notFound={N} failed={F}",
+            "Web enrichment complete: processed={P} enriched={E} notFound={N} failed={F}",
             processed, enriched, notFound, failed);
 
-        return new DescriptionEnrichmentResult(processed, enriched, notFound, failed);
+        return new WebEnrichmentResult(processed, enriched, notFound, failed);
     }
 
-    private async Task<CompanyExtraction?> ExtractFromClaudeAsync(string companyName, List<string> descriptions, CancellationToken ct)
+    private static readonly Dictionary<string, string> FieldSchemas = new()
     {
-        var descriptionBlock = string.Join("\n---\n", descriptions.Select(d => $"---\n{d}"));
+        ["canonical_name"]       = "\"canonical_name\": { \"value\": \"official display name of the company\", \"confidence\": \"one of: high, medium, low\" }",
+        ["industry"]             = "\"industry\": { \"value\": \"one of: Technology, Software/SaaS, Developer Tools, AI/ML, Cloud, Healthcare, Biotech & Pharma, Finance, Fintech, Insurance, Manufacturing, Aerospace & Defense, Automotive, Energy, Retail, E-commerce, Food & Beverage, Hospitality, Media, Gaming, Telecommunications, Cybersecurity, Education, Higher Education, Nonprofit, Government, Real Estate, Logistics & Transportation, Consulting, Legal Services, Marketing, Agriculture, Construction, Other\", \"confidence\": \"one of: high, medium, low\" }",
+        ["employee_count_range"] = "\"employee_count_range\": { \"value\": \"one of: 1-50, 50-200, 200-500, 500-1000, 1000-5000, 5000-10000, 10000+\", \"confidence\": \"one of: high, medium, low\" }",
+        ["headquarters_city"]    = "\"headquarters_city\": { \"value\": \"city name\", \"confidence\": \"one of: high, medium, low\" }",
+        ["headquarters_country"] = "\"headquarters_country\": { \"value\": \"country name\", \"confidence\": \"one of: high, medium, low\" }",
+        ["founding_year"]        = "\"founding_year\": { \"value\": 2010, \"confidence\": \"one of: high, medium, low\" }",
+    };
 
-        var userMessage = $$"""
-            Extract company information for "{{companyName}}" strictly from the job posting descriptions below.
-            Do NOT use any prior knowledge about this company — only extract what is explicitly stated or strongly implied in the text.
+    private static List<string> BuildNeededFields(Core.Entities.Company company)
+    {
+        var fields = new List<string>();
+        if (IsSlugDerivedName(company.CanonicalName))  fields.Add("canonical_name");
+        if (company.Industry == null)                  fields.Add("industry");
+        if (company.EmployeeCountRange == null)        fields.Add("employee_count_range");
+        if (company.HeadquartersCity == null)          fields.Add("headquarters_city");
+        if (company.HeadquartersCountry == null)       fields.Add("headquarters_country");
+        if (company.FoundingYear == null)              fields.Add("founding_year");
+        return fields;
+    }
 
-            Respond ONLY with a JSON object using this exact structure (use null for value and confidence when not found):
-            {
-            "canonical_name": { "value": "official display name of the company as it appears in the text", "confidence": "one of: high, medium, low" },
-            "industry": { "value": "one of: Technology, Software/SaaS, Developer Tools, AI/ML, Cloud, Healthcare, Biotech & Pharma, Finance, Fintech, Insurance, Manufacturing, Aerospace & Defense, Automotive, Energy, Retail, E-commerce, Food & Beverage, Hospitality, Media, Gaming, Telecommunications, Cybersecurity, Education, Higher Education, Nonprofit, Government, Real Estate, Logistics & Transportation, Consulting, Legal Services, Marketing, Agriculture, Construction, Other", "confidence": "one of: high, medium, low" },
-            "employee_count_range": { "value": "one of: 1-50, 50-200, 200-500, 500-1000, 1000-5000, 5000-10000, 10000+", "confidence": "one of: high, medium, low" },
-            "headquarters_city": { "value": "city name", "confidence": "one of: high, medium, low" },
-            "headquarters_country": { "value": "country name", "confidence": "one of: high, medium, low" },
-            "founding_year": { "value": 2010, "confidence": "one of: high, medium, low" }
-            }
+    private async Task<CompanyExtraction?> SearchWithClaudeAsync(string companyName, List<string> neededFields, CancellationToken ct)
+    {
+        var schema = "{\n" + string.Join(",\n", neededFields.Select(f => FieldSchemas[f])) + "\n}";
+
+        var userMessage = $"""
+            Using your training knowledge, provide information about the company "{companyName}".
+
+            Return ONLY a JSON object using this exact structure (use null for value and confidence when not found):
+            {schema}
 
             Confidence rules:
-            - high: explicitly stated in the posting text
-            - medium: reasonably inferred from strong signals in the text
-            - low: weakly implied by a single or vague reference
-            - null: no basis in the text — do not guess
+            - high: well-known fact you are confident about
+            - medium: likely correct but not certain
+            - low: uncertain or possibly conflicting information
+            - null: company not recognized or information unknown
 
-            Job postings:
-            {{descriptionBlock}}
-            ---
+            If there are multiple companies with this name, use context clues (it's a tech or professional services company that uses an ATS for hiring) to pick the most likely one.
             """;
 
         var response = await anthropic.Messages.Create(new MessageCreateParams
         {
             Model = Model.ClaudeHaiku4_5_20251001,
             MaxTokens = 600,
-            System = "You are a data extraction assistant. Extract information strictly from provided text. Respond ONLY with a valid JSON object. No explanation, no markdown, no code fences — just the JSON.",
-            Messages =
-            [
-                new MessageParam { Role = Role.User, Content = userMessage }
-            ]
+            System = "You are a company research assistant. Answer from your training knowledge. Respond ONLY with a valid JSON object. No explanation, no markdown, no code fences — just the JSON.",
+            Messages = [new MessageParam { Role = Role.User, Content = userMessage }],
         }, ct);
 
+        // Take the last text block — intermediate blocks may contain "Let me search..." preamble
         string? rawText = null;
         foreach (var block in response.Content)
         {
             if (block.TryPickText(out TextBlock? tb) && tb != null)
-            {
-                rawText = tb.Text!;
-                break;
-            }
+                rawText = tb.Text;
         }
 
         if (string.IsNullOrWhiteSpace(rawText))
@@ -225,19 +227,8 @@ public class DescriptionEnrichmentService(
     private static string? Trunc100(string? value) =>
         value is null ? null : value.Length > 100 ? value[..100] : value;
 
-    // A name is considered slug-derived if it has no spaces and is either all lowercase or contains hyphens/underscores
     private static bool IsSlugDerivedName(string name) =>
         !name.Contains(' ') && (name == name.ToLowerInvariant() || name.Contains('-') || name.Contains('_'));
-
-    private static string TruncateAndClean(string text)
-    {
-        // Strip HTML tags
-        var cleaned = Regex.Replace(text, "<[^>]+>", " ");
-        // Collapse whitespace
-        cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
-        // Truncate to 3000 chars
-        return cleaned.Length > 3000 ? cleaned[..3000] : cleaned;
-    }
 
     private record CompanyExtraction(
         [property: JsonPropertyName("canonical_name")] ExtractionField<string>? CanonicalName,
@@ -251,7 +242,6 @@ public class DescriptionEnrichmentService(
         [property: JsonPropertyName("value")] T? Value,
         [property: JsonPropertyName("confidence")] string? Confidence)
     {
-        // Accepts high or medium; rejects low, null, or missing confidence
         public bool IsConfident() =>
             Confidence is "high" or "medium" && Value is not null &&
             (Value is not string s || !string.IsNullOrWhiteSpace(s));
