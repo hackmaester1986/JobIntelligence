@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Anthropic;
 using Anthropic.Exceptions;
 using Anthropic.Models.Messages;
+using JobIntelligence.Core.Entities;
 using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -149,7 +150,7 @@ public class WebEnrichmentService(
     private static readonly Dictionary<string, string> FieldSchemas = new()
     {
         ["canonical_name"]       = "\"canonical_name\": { \"value\": \"official display name of the company\", \"confidence\": \"one of: high, medium, low\" }",
-        ["industry"]             = "\"industry\": { \"value\": \"one of: Technology, Software/SaaS, Developer Tools, AI/ML, Cloud, Healthcare, Biotech & Pharma, Finance, Fintech, Insurance, Manufacturing, Aerospace & Defense, Automotive, Energy, Retail, E-commerce, Food & Beverage, Hospitality, Media, Gaming, Telecommunications, Cybersecurity, Education, Higher Education, Nonprofit, Government, Real Estate, Logistics & Transportation, Consulting, Legal Services, Marketing, Agriculture, Construction, Other\", \"confidence\": \"one of: high, medium, low\" }",
+        ["industry"]             = $"\"industry\": {{ \"value\": \"one of: {CompanyIndustries.PromptList}\", \"confidence\": \"one of: high, medium, low\" }}",
         ["employee_count_range"] = "\"employee_count_range\": { \"value\": \"one of: 1-50, 50-200, 200-500, 500-1000, 1000-5000, 5000-10000, 10000+\", \"confidence\": \"one of: high, medium, low\" }",
         ["headquarters_city"]    = "\"headquarters_city\": { \"value\": \"city name\", \"confidence\": \"one of: high, medium, low\" }",
         ["headquarters_country"] = "\"headquarters_country\": { \"value\": \"country name\", \"confidence\": \"one of: high, medium, low\" }",

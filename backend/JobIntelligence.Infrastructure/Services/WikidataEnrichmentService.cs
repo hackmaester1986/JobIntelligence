@@ -202,7 +202,7 @@ public class WikidataEnrichmentService(
         var row = rows[0];
 
         if (company.Industry == null && row.TryGetValue("industryLabel", out var industry) && !string.IsNullOrWhiteSpace(industry))
-            company.Industry = industry;
+            company.Industry = ToCanonicalIndustry(industry);
 
         if (company.EmployeeCountRange == null && row.TryGetValue("employees", out var empStr))
         {
@@ -277,6 +277,98 @@ public class WikidataEnrichmentService(
                 return lower[..^suffix.Length].Trim();
         }
         return lower;
+    }
+
+    private static string? ToCanonicalIndustry(string raw)
+    {
+        var lower = raw.Trim().ToLowerInvariant();
+        return lower switch
+        {
+            // Technology / Software
+            var s when s.Contains("software") || s.Contains("saas")                    => "Software/SaaS",
+            var s when s.Contains("developer tool") || s.Contains("devtool")           => "Developer Tools",
+            var s when s.Contains("artificial intelligence") || s.Contains(" ai ") ||
+                       s == "ai" || s.Contains("machine learning")                      => "AI/ML",
+            var s when s.Contains("cloud computing") || s == "cloud"                   => "Cloud",
+            var s when s.Contains("information technology") || s.Contains("it service")
+                       || s == "technology" || s.Contains("tech industry")              => "Technology",
+            var s when s.Contains("internet")                                           => "Technology",
+
+            // Security
+            var s when s.Contains("cybersecurity") || s.Contains("cyber security") ||
+                       s.Contains("information security") || s.Contains("computer security") => "Cybersecurity",
+
+            // Healthcare / Life Sciences
+            var s when s.Contains("biotech") || s.Contains("biotechnology") ||
+                       s.Contains("pharmaceutical") || s.Contains("pharma") ||
+                       s.Contains("life science")                                       => "Biotech & Pharma",
+            var s when s.Contains("health care") || s.Contains("healthcare") ||
+                       s.Contains("medical") || s.Contains("hospital")                 => "Healthcare",
+
+            // Finance
+            var s when s.Contains("fintech") || s.Contains("financial technology")     => "Fintech",
+            var s when s.Contains("insurance")                                          => "Insurance",
+            var s when s.Contains("bank") || s.Contains("financial service") ||
+                       s.Contains("investment") || s.Contains("asset management") ||
+                       s.Contains("economics of banking") || s.Contains("pension") ||
+                       s.Contains("real estate investment trust")                       => "Finance",
+
+            // Industrial
+            var s when s.Contains("aerospace") || s.Contains("defense") || s.Contains("defence") => "Aerospace & Defense",
+            var s when s.Contains("automotive") || s.Contains("automobile") || s.Contains("motor vehicle") => "Automotive",
+            var s when s.Contains("aviation") || s.Contains("airline")                 => "Aerospace & Defense",
+            var s when s.Contains("manufactur") || s.Contains("industrial") ||
+                       s.Contains("mechanical engineering") || s.Contains("electrical industry") ||
+                       s.Contains("electronics") || s.Contains("chemical industry")    => "Manufacturing",
+            var s when s.Contains("mining")                                             => "Mining",
+            var s when s.Contains("construction")                                       => "Construction",
+            var s when s.Contains("robotics")                                           => "Manufacturing",
+
+            // Energy / Utilities
+            var s when s.Contains("energy") || s.Contains("oil") || s.Contains("gas") ||
+                       s.Contains("renewable") || s.Contains("photovoltaic") ||
+                       s.Contains("solar") || s.Contains("nuclear")                    => "Energy",
+            var s when s.Contains("utility") || s.Contains("utilities") ||
+                       s.Contains("water supply") || s.Contains("public utility")      => "Utilities",
+
+            // Commerce / Consumer
+            var s when s.Contains("e-commerce") || s.Contains("ecommerce")             => "E-commerce",
+            var s when s.Contains("retail") || s.Contains("clothing industry")         => "Retail",
+            var s when s.Contains("food") || s.Contains("beverage") || s.Contains("restaurant") ||
+                       s.Contains("fast food") || s.Contains("vegan")                  => "Food & Beverage",
+            var s when s.Contains("hospitality") || s.Contains("hotel") || s.Contains("travel") => "Hospitality",
+
+            // Media / Entertainment
+            var s when s.Contains("gaming") || s.Contains("video game")                => "Gaming",
+            var s when s.Contains("media") || s.Contains("publishing") || s.Contains("broadcast") => "Media",
+            var s when s.Contains("marketing") || s.Contains("advertising")            => "Marketing",
+
+            // Telecom / Data
+            var s when s.Contains("telecommunication") || s.Contains("telecom")        => "Telecommunications",
+            var s when s.Contains("data analytics") || s.Contains("analytics")         => "Technology",
+            var s when s.Contains("logistics") || s.Contains("transport") ||
+                       s.Contains("shipping") || s.Contains("supply chain") ||
+                       s.Contains("mail") || s.Contains("product distribution")        => "Logistics & Transportation",
+
+            // Professional Services
+            var s when s.Contains("consulting") || s.Contains("management consulting") => "Consulting",
+            var s when s.Contains("legal") || s.Contains("law firm")                   => "Legal Services",
+
+            // Other sectors
+            var s when s.Contains("real estate") || s.Contains("serviced office")      => "Real Estate",
+            var s when s.Contains("agriculture") || s.Contains("farming")              => "Agriculture",
+            var s when s.Contains("education") || s.Contains("higher education") ||
+                       s.Contains("executive education") || s.Contains("university") ||
+                       s.Contains("academic")                                           => "Education",
+            var s when s.Contains("nonprofit") || s.Contains("non-profit") ||
+                       s.Contains("foundation") || s.Contains("charity")               => "Nonprofit",
+            var s when s.Contains("government") || s.Contains("public sector") ||
+                       s.Contains("municipality")                                       => "Government",
+            var s when s.Contains("business-to-business") || s.Contains("b2b")        => "Consulting",
+
+            // Unrecognized — let LLM enrichment handle it
+            _ => null
+        };
     }
 
     private static string ToEmployeeRange(int count) => count switch

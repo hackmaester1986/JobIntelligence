@@ -30,7 +30,7 @@
     </div>
 
     <div class="jobs-grid" *ngIf="!loading() && result() as r">
-      <mat-card class="job-card" *ngFor="let job of r.data" (click)="openDetail(job.id)">
+      <mat-card class="job-card" *ngFor="let job of r.data">
         <mat-card-content>
           <h3>{{ job.title }}</h3>
           <p class="company">{{ job.company?.canonicalName }}</p>
@@ -39,11 +39,16 @@
             <ng-container *ngIf="job.seniorityLevel"> · {{ job.seniorityLevel }}</ng-container>
             <ng-container *ngIf="job.company?.industry"> · {{ job.company?.industry }}</ng-container>
           </p>
-          <p class="meta" style="margin:0">{{ timeAgo(job.firstSeenAt) }}</p>
-          <div class="chips">
-            <span *ngIf="job.isRemote" class="chip remote">Remote</span>
-            <span *ngIf="job.isHybrid" class="chip hybrid">Hybrid</span>
-            <span *ngIf="job.source?.name" class="chip source">{{ job.source?.name }}</span>
+          <div class="card-footer">
+            <div class="footer-left">
+              <p class="meta" style="margin:0">{{ timeAgo(job.firstSeenAt) }}</p>
+              <div class="chips">
+                <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+                <span *ngIf="job.isHybrid" class="chip hybrid">Hybrid</span>
+                <span *ngIf="job.source?.name" class="chip source">{{ job.source?.name }}</span>
+              </div>
+            </div>
+            <a *ngIf="job.applyUrl" mat-flat-button color="primary" class="apply-btn" [href]="job.applyUrl" target="_blank" rel="noopener noreferrer" (click)="$event.stopPropagation()">Apply</a>
           </div>
         </mat-card-content>
       </mat-card>

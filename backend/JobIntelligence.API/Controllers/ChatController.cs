@@ -1,5 +1,6 @@
 using JobIntelligence.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace JobIntelligence.API.Controllers;
 
@@ -11,6 +12,7 @@ public class ChatController(IChatService chatService) : ControllerBase
     public record ChatRequestDto(List<ChatMessageDto> Messages, bool? IsUs = null);
 
     [HttpPost]
+    [EnableRateLimiting("chat-per-ip")]
     public async Task<IActionResult> Chat([FromBody] ChatRequestDto request, CancellationToken ct)
     {
         var history = request.Messages.Select(m => (m.Role, m.Content)).ToList();

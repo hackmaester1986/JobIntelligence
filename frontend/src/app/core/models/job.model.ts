@@ -6,6 +6,7 @@ export interface Job {
   locationRaw?: string;
   isRemote: boolean;
   isHybrid?: boolean;
+  applyUrl?: string;
   firstSeenAt: string;
   authenticityScore?: number;
   authenticityLabel?: string;

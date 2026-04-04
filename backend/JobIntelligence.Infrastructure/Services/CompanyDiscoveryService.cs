@@ -1,10 +1,12 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using JobIntelligence.Core.Entities;
 using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace JobIntelligence.Infrastructure.Services;
@@ -12,8 +14,10 @@ namespace JobIntelligence.Infrastructure.Services;
 public class CompanyDiscoveryService(
     IHttpClientFactory httpClientFactory,
     ApplicationDbContext db,
-    ILogger<CompanyDiscoveryService> logger) : ICompanyDiscoveryService
+    ILogger<CompanyDiscoveryService> logger,
+    IConfiguration configuration) : ICompanyDiscoveryService
 {
+    private record WorkdayFailure(string Url, string Host, string CareerSite);
     private record RegistryEntry(
         [property: JsonPropertyName("canonicalName")] string CanonicalName,
         [property: JsonPropertyName("domain")] string? Domain,
@@ -217,6 +221,8 @@ public class CompanyDiscoveryService(
             await Task.Delay(200, ct);
         }
 
+        var workdayFailures = new List<WorkdayFailure>();
+
         foreach (var entry in workdayEntries)
         {
             var normalized = entry.Host.ToLowerInvariant();
@@ -225,7 +231,16 @@ public class CompanyDiscoveryService(
             try
             {
                 var validated = await ValidateWorkdayTenant(workday, entry.Host, entry.CareerSite, ct);
-                if (validated == null) { failed.Add(entry.Host); failedPerSource["Workday"] = failedPerSource.GetValueOrDefault("Workday") + 1; }
+                if (validated == null)
+                {
+                    failed.Add(entry.Host);
+                    failedPerSource["Workday"] = failedPerSource.GetValueOrDefault("Workday") + 1;
+                    var tenant = entry.Host.Split('.')[0];
+                    workdayFailures.Add(new WorkdayFailure(
+                        Url: $"https://{entry.Host}/wday/cxs/{tenant}/{entry.CareerSite}/jobs",
+                        Host: entry.Host,
+                        CareerSite: entry.CareerSite));
+                }
                 else
                 {
                     var name = SlugToName(entry.Host.Split('.')[0]);
@@ -243,12 +258,38 @@ public class CompanyDiscoveryService(
             {
                 logger.LogWarning(ex, "Failed to process Workday host {Host}", entry.Host);
                 failed.Add(entry.Host);
+                var tenant = entry.Host.Split('.')[0];
+                workdayFailures.Add(new WorkdayFailure(
+                    Url: $"https://{entry.Host}/wday/cxs/{tenant}/{entry.CareerSite}/jobs",
+                    Host: entry.Host,
+                    CareerSite: entry.CareerSite));
             }
 
             await Task.Delay(200, ct);
         }
 
+        if (workdayFailures.Count > 0)
+            await WriteWorkdayFailuresCsvAsync(workdayFailures);
+
         return new DiscoveryResult(added.Count, skipped, failed.Count, added, failed, validatedPerSource, failedPerSource);
+    }
+
+    private async Task WriteWorkdayFailuresCsvAsync(List<WorkdayFailure> failures)
+    {
+        var outputPath = configuration["WorkdayFailuresPath"]
+            ?? Path.Combine(AppContext.BaseDirectory, "workday_failures.csv");
+
+        var writeHeader = !File.Exists(outputPath);
+
+        var sb = new StringBuilder();
+        if (writeHeader)
+            sb.AppendLine("Url,Host,CareerSite");
+
+        foreach (var f in failures)
+            sb.AppendLine($"{f.Url},{f.Host},{f.CareerSite}");
+
+        await File.AppendAllTextAsync(outputPath, sb.ToString());
+        logger.LogInformation("Wrote {Count} Workday validation failures to {Path}", failures.Count, outputPath);
     }
 
     // Shared: insert a validated company row

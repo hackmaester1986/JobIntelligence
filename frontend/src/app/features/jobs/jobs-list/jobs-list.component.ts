@@ -11,14 +11,12 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatDialog } from '@angular/material/dialog';
 import { Subject, Subscription } from 'rxjs';
 import { debounceTime, skip, switchMap } from 'rxjs/operators';
 import { Job, JobFilters } from '../../../core/models/job.model';
 import { JobsService, PagedResult } from '../../../core/services/jobs.service';
 import { CompaniesService } from '../../../core/services/companies.service';
 import { LocationFilterService } from '../../../core/services/location-filter.service';
-import { JobDetailDialogComponent } from '../job-detail-dialog/job-detail-dialog.component';
 
 @Component({
   selector: 'app-jobs-list',
@@ -36,7 +34,6 @@ export class JobsListComponent implements OnInit, OnDestroy {
   private jobsService = inject(JobsService);
   private companiesService = inject(CompaniesService);
   private locationFilter = inject(LocationFilterService);
-  private dialog = inject(MatDialog);
   private searchSubject = new Subject<void>();
   private loadSubject = new Subject<void>();
   private searchSub!: Subscription;
@@ -125,11 +122,4 @@ export class JobsListComponent implements OnInit, OnDestroy {
     return months === 1 ? '1 month ago' : `${months} months ago`;
   }
 
-  openDetail(id: number): void {
-    this.dialog.open(JobDetailDialogComponent, {
-      data: { jobId: id },
-      width: '720px',
-      maxHeight: '90vh'
-    });
-  }
 }

@@ -157,6 +157,7 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
                 j.LocationRaw,
                 j.IsRemote,
                 j.FirstSeenAt,
+                j.ApplyUrl,
                 j.AuthenticityScore,
                 j.AuthenticityLabel,
                 Source = new { j.Source.Name }

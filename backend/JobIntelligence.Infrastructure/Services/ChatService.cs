@@ -63,9 +63,17 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         }
     ];
 
+    // Keep the last N user/assistant turns to limit input token cost
+    private const int MaxHistoryTurns = 10;
+
     public async Task<string> ChatAsync(List<(string Role, string Content)> history, bool? isUs = null, CancellationToken ct = default)
     {
-        var messages = history.Select(m => new MessageParam
+        // Trim to the most recent turns; always keep at least the latest user message
+        var trimmed = history.Count > MaxHistoryTurns * 2
+            ? history[^(MaxHistoryTurns * 2)..]
+            : history;
+
+        var messages = trimmed.Select(m => new MessageParam
         {
             Role = m.Role == "user" ? Role.User : Role.Assistant,
             Content = m.Content
@@ -77,7 +85,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
         {
             var response = await anthropic.Messages.Create(new MessageCreateParams
             {
-                Model = Model.ClaudeOpus4_6,
+                Model = Model.ClaudeSonnet4_6,
                 MaxTokens = 1024,
                 System = system,
                 Messages = messages,

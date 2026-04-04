@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Anthropic;
 using Anthropic.Exceptions;
 using Anthropic.Models.Messages;
+using JobIntelligence.API.Filters;
 using JobIntelligence.Core.Entities;
 using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Parsing;
@@ -19,6 +20,7 @@ namespace JobIntelligence.API.Controllers;
 
 [ApiController]
 [Route("internal/backfill")]
+[AdminKey]
 public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<BackfillController> logger) : ControllerBase
 {
     private static readonly HashSet<string> TechTitleKeywords = new(StringComparer.OrdinalIgnoreCase)
@@ -383,6 +385,79 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         return Accepted(new { message = $"SmartRecruiters description backfill started for batch of {batchSize}" });
     }
 
+    [HttpPost("smartrecruiters-apply-urls")]
+    public IActionResult BackfillSmartRecruitersApplyUrls([FromQuery] int batchSize = 500, [FromQuery] int concurrency = 10)
+    {
+        logger.LogInformation("SmartRecruiters apply URL backfill triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+            var client = httpClientFactory.CreateClient("SmartRecruiters");
+
+            var source = await db.JobSources.FirstAsync(s => s.Name == "smartrecruiters");
+
+            var postings = await db.JobPostings
+                .Include(p => p.Company)
+                .Where(p => p.SourceId == source.Id
+                            && p.Company.SmartRecruitersSlug != null)
+                .OrderByDescending(p => p.FirstSeenAt)
+                .Take(batchSize)
+                .ToListAsync();
+
+            logger.LogInformation("SmartRecruiters apply URL backfill: {Count} postings to process", postings.Count);
+
+            var semaphore = new System.Threading.SemaphoreSlim(concurrency);
+            var fetchTasks = postings.Select(async posting =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    var refUrl = $"v1/companies/{posting.Company.SmartRecruitersSlug}/postings/{posting.ExternalId}";
+                    var detail = await client.GetFromJsonAsync<SrDetailDto>(refUrl);
+                    return new SrFetchResult(posting, detail, null);
+                }
+                catch (Exception ex)
+                {
+                    return new SrFetchResult(posting, null, ex);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            var results = await Task.WhenAll(fetchTasks);
+
+            int updated = 0, failed = 0;
+            foreach (var (posting, detail, error) in results)
+            {
+                if (error != null)
+                {
+                    logger.LogWarning(error, "SmartRecruiters apply URL backfill: failed to fetch detail for {JobId}", posting.ExternalId);
+                    failed++;
+                    continue;
+                }
+
+                var correctUrl = detail?.PostingUrl ?? detail?.ApplyUrl;
+                if (correctUrl != null && posting.ApplyUrl != correctUrl)
+                {
+                    posting.ApplyUrl = correctUrl;
+                    posting.UpdatedAt = DateTime.UtcNow;
+                    updated++;
+                }
+            }
+
+            await db.SaveChangesAsync();
+            logger.LogInformation(
+                "SmartRecruiters apply URL backfill complete: updated={U} failed={F}", updated, failed);
+        });
+
+        return Accepted(new { message = $"SmartRecruiters apply URL backfill started for batch of {batchSize}" });
+    }
+
     private static string? BuildSrDescriptionHtml(SrDetailDto? detail)
     {
         var sections = detail?.JobAd?.Sections;
@@ -423,6 +498,8 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
     }
 
     private record SrDetailDto(
+        [property: JsonPropertyName("postingUrl")] string? PostingUrl,
+        [property: JsonPropertyName("applyUrl")] string? ApplyUrl,
         [property: JsonPropertyName("jobAd")] SrJobAdDto? JobAd);
 
     private record SrJobAdDto(
@@ -628,6 +705,22 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         return Accepted(new { message = "Location classification backfill started" });
     }
 
+    [HttpPost("deactivate-excluded-companies")]
+    public async Task<IActionResult> DeactivateExcludedCompanyJobs(CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var updated = await db.JobPostings
+            .Where(p => p.IsActive && p.Company.IsTechHiring == false)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.IsActive, false)
+                .SetProperty(p => p.RemovedAt, DateTime.UtcNow)
+                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow), ct);
+
+        logger.LogInformation("Deactivated {Count} job postings for excluded companies", updated);
+        return Ok(new { deactivated = updated });
+    }
+
     [HttpPost("company-stats")]
     public IActionResult BackfillCompanyStats()
     {
@@ -684,5 +777,90 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         });
 
         return Accepted(new { message = "Company stats backfill started" });
+    }
+
+    [HttpPost("enrich-sizes")]
+    public IActionResult EnrichSizes([FromQuery] int batchSize = 50)
+    {
+        logger.LogInformation("Size enrichment triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var enricher = scope.ServiceProvider.GetRequiredService<JobIntelligence.Core.Interfaces.ISizeEnrichmentService>();
+            try
+            {
+                var result = await enricher.EnrichAsync(batchSize, CancellationToken.None);
+                logger.LogInformation(
+                    "Size enrichment complete: processed={P} enriched={E} notFound={N} failed={F}",
+                    result.Processed, result.Enriched, result.NotFound, result.Failed);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Size enrichment failed");
+            }
+        });
+
+        return Accepted(new { message = $"Size enrichment started for batch of {batchSize}" });
+    }
+
+    [HttpPost("import-workday-urls")]
+    public async Task<IActionResult> ImportWorkdayUrls(
+        [FromBody] List<string> urls,
+        [FromQuery] bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        if (urls is not { Count: > 0 })
+            return BadRequest(new { error = "No URLs provided" });
+
+        // Parse each URL into a WorkdayEntry
+        var entries = new List<JobIntelligence.Core.Interfaces.WorkdayEntry>();
+        var unparseable = new List<string>();
+
+        foreach (var raw in urls)
+        {
+            var url = raw.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                !uri.Host.EndsWith(".myworkdayjobs.com", StringComparison.OrdinalIgnoreCase))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            // Take the first non-empty path segment as the career site
+            var careerSite = uri.AbsolutePath
+                .Trim('/')
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault();
+
+            if (string.IsNullOrEmpty(careerSite))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            entries.Add(new JobIntelligence.Core.Interfaces.WorkdayEntry(uri.Host.ToLowerInvariant(), careerSite));
+        }
+
+        logger.LogInformation(
+            "import-workday-urls: parsed {Valid} valid entries, {Bad} unparseable (dryRun={DryRun})",
+            entries.Count, unparseable.Count, dryRun);
+
+        using var scope = scopeFactory.CreateScope();
+        var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
+
+        var result = await discovery.DiscoverFromSlugsAsync(
+            [], [], [], [], entries, dryRun, ct);
+
+        return Ok(new
+        {
+            parsed = entries.Count,
+            unparseable,
+            validated = result.ValidatedPerSource.GetValueOrDefault("Workday"),
+            skipped = result.Skipped,
+            failed = result.Failed,
+            dryRun,
+            added = dryRun ? (object)"(dry run — nothing imported)" : result.AddedCompanies
+        });
     }
 }

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Anthropic;
 using Anthropic.Models.Messages;
+using JobIntelligence.Core.Entities;
 using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -162,7 +163,7 @@ public class DescriptionEnrichmentService(
             Respond ONLY with a JSON object using this exact structure (use null for value and confidence when not found):
             {
             "canonical_name": { "value": "official display name of the company as it appears in the text", "confidence": "one of: high, medium, low" },
-            "industry": { "value": "one of: Technology, Software/SaaS, Developer Tools, AI/ML, Cloud, Healthcare, Biotech & Pharma, Finance, Fintech, Insurance, Manufacturing, Aerospace & Defense, Automotive, Energy, Retail, E-commerce, Food & Beverage, Hospitality, Media, Gaming, Telecommunications, Cybersecurity, Education, Higher Education, Nonprofit, Government, Real Estate, Logistics & Transportation, Consulting, Legal Services, Marketing, Agriculture, Construction, Other", "confidence": "one of: high, medium, low" },
+            "industry": { "value": "one of: {{CompanyIndustries.PromptList}}", "confidence": "one of: high, medium, low" },
             "employee_count_range": { "value": "one of: 1-50, 50-200, 200-500, 500-1000, 1000-5000, 5000-10000, 10000+", "confidence": "one of: high, medium, low" },
             "headquarters_city": { "value": "city name", "confidence": "one of: high, medium, low" },
             "headquarters_country": { "value": "country name", "confidence": "one of: high, medium, low" },

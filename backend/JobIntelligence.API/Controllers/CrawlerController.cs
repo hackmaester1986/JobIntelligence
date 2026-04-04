@@ -1,3 +1,4 @@
+using JobIntelligence.API.Filters;
 using JobIntelligence.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,6 +7,7 @@ namespace JobIntelligence.API.Controllers;
 
 [ApiController]
 [Route("internal/crawler")]
+[AdminKey]
 public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<CrawlerController> logger) : ControllerBase
 {
     private static readonly string[] ValidSources = ["greenhouse", "lever", "ashby", "smartrecruiters", "workday"];

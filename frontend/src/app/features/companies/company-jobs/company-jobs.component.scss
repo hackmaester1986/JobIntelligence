@@ -1,6 +1,34 @@
 .jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .job-card { cursor: pointer; transition: box-shadow .2s; }
 .job-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.15); }
-h3 { margin: 0 0 6px; }
+h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  line-height: 1.35;
+  height: calc(1.35em * 2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 .meta { color: rgba(0,0,0,.54); font-size: 13px; margin: 0 0 8px; }
 .chip.remote { background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.apply-btn {
+  --mdc-filled-button-container-shape: 18px;
+  padding: 0 10px !important;
+  height: 28px !important;
+  line-height: 28px !important;
+  min-width: auto !important;
+  font-size: 13px;
+  flex-shrink: 0;
+}

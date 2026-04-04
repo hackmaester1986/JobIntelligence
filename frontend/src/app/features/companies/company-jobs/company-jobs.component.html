@@ -5,7 +5,7 @@
 <ng-container *ngIf="!loading()">
   <h2>Open Positions ({{ jobs().length }})</h2>
   <div class="jobs-grid">
-    <mat-card *ngFor="let job of jobs()" class="job-card" [routerLink]="['/jobs', job.id]">
+    <mat-card *ngFor="let job of jobs()" class="job-card">
       <mat-card-content>
         <h3>{{ job.title }}</h3>
         <p class="meta">
@@ -13,7 +13,12 @@
           <span *ngIf="job.seniorityLevel"> &middot; {{ job.seniorityLevel }}</span>
           <span *ngIf="job.locationRaw"> &middot; {{ job.locationRaw }}</span>
         </p>
-        <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+        <div class="card-footer">
+          <div class="chips">
+            <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+          </div>
+          <a *ngIf="job.applyUrl" mat-flat-button color="primary" class="apply-btn" [href]="job.applyUrl" target="_blank" rel="noopener noreferrer">Apply</a>
+        </div>
       </mat-card-content>
     </mat-card>
   </div>

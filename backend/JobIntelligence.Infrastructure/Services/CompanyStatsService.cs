@@ -22,7 +22,7 @@ public class CompanyStatsService(ApplicationDbContext db) : ICompanyStatsService
                 RemoteJobCount       = g.Count(j => j.IsActive && j.IsRemote),
                 TotalJobsEverSeen    = g.Count(),
                 AvgJobLifetimeDays   = (double?)g.Where(j => j.RemovedAt != null)
-                                         .Average(j => (double?)(j.RemovedAt!.Value - j.FirstSeenAt).TotalDays),
+                                         .Average(j => (double?)(j.LastSeenAt - j.FirstSeenAt).TotalDays),
                 AvgRepostCount       = (double?)g.Where(j => j.IsActive)
                                          .Average(j => (double?)j.RepostCount),
                 SalaryDisclosureRate = (double?)g.Where(j => j.IsActive)

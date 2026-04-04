@@ -1,3 +1,4 @@
+using JobIntelligence.Core.Entities;
 using System.Text.RegularExpressions;
 
 namespace JobIntelligence.Infrastructure.Parsing;

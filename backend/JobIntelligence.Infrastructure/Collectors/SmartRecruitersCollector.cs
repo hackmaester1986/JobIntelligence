@@ -89,9 +89,10 @@ public class SmartRecruitersCollector(
 
         foreach (var (job, detail) in newJobResults)
         {
-            if (detail == null) continue;
+            if (detail == null)
+                logger.LogWarning("SmartRecruiters [{Company}]: detail fetch failed for job {JobId}, adding with fallback apply URL", company.CanonicalName, job.Id);
 
-            var mapped = MapToPosting(job, detail, source.Id, company.Id);
+            var mapped = MapToPosting(job, detail, source.Id, company.Id, company.SmartRecruitersSlug!);
             if (mapped.DescriptionHash != null && removedByHash.TryGetValue(mapped.DescriptionHash, out var prev))
             {
                 mapped.PreviousPostingId = prev.Id;
@@ -104,7 +105,7 @@ public class SmartRecruitersCollector(
         foreach (var job in existingJobs)
         {
             var existing = existingMap[job.Id ?? string.Empty];
-            var mapped   = MapToPosting(job, null, source.Id, company.Id);
+            var mapped   = MapToPosting(job, null, source.Id, company.Id, company.SmartRecruitersSlug!);
             var changed  = DetectChanges(existing, mapped);
             if (changed.Count > 0)
             {
@@ -169,7 +170,7 @@ public class SmartRecruitersCollector(
         }
     }
 
-    private static JobPosting MapToPosting(SmartRecruitersJob job, SmartRecruitersJobDetail? detail, int sourceId, long companyId)
+    private static JobPosting MapToPosting(SmartRecruitersJob job, SmartRecruitersJobDetail? detail, int sourceId, long companyId, string companySlug)
     {
         var fullLocation = job.Location?.FullLocation;
         var city = job.Location?.City ?? string.Empty;
@@ -194,7 +195,7 @@ public class SmartRecruitersCollector(
         var descriptionHash = Compute(description);
         var salary = Parse(descriptionHtml);
 
-        var applyUrl = detail?.PostingUrl ?? detail?.ApplyUrl ?? BuildApplyUrl(job.Company?.Name ?? companyId.ToString(), job.Id, job.Name);
+        var applyUrl = detail?.PostingUrl ?? detail?.ApplyUrl ?? BuildApplyUrl(companySlug, job.Id, job.Name);
 
         return new JobPosting
         {
@@ -202,7 +203,7 @@ public class SmartRecruitersCollector(
             SourceId = sourceId,
             CompanyId = companyId,
             Title = job.Name ?? string.Empty,
-            SeniorityLevel = job.ExperienceLevel?.Label ?? TitleParser.Parse(job.Name),
+            SeniorityLevel = JobSeniorities.Normalize(job.ExperienceLevel?.Label) ?? TitleParser.Parse(job.Name),
             Department = !string.IsNullOrEmpty(job.Department?.Label) ? job.Department.Label : job.Function?.Label,
             LocationRaw = Truncate(locationText, 500),
             LocationCity = loc.City,
@@ -259,7 +260,6 @@ public class SmartRecruitersCollector(
         if (existing.Title != incoming.Title) changes["title"] = [existing.Title, incoming.Title];
         if (existing.LocationRaw != incoming.LocationRaw) changes["location_raw"] = [existing.LocationRaw ?? "", incoming.LocationRaw ?? ""];
         if (existing.Department != incoming.Department) changes["department"] = [existing.Department ?? "", incoming.Department ?? ""];
-        if (existing.ApplyUrl != incoming.ApplyUrl) changes["apply_url"] = [existing.ApplyUrl ?? "", incoming.ApplyUrl ?? ""];
         return changes;
     }
 
@@ -276,8 +276,6 @@ public class SmartRecruitersCollector(
         existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.EmploymentType = incoming.EmploymentType;
-        existing.ApplyUrl = incoming.ApplyUrl;
-        existing.ApplyUrlDomain = incoming.ApplyUrlDomain;
         existing.UpdatedAt = DateTime.UtcNow;
     }
 

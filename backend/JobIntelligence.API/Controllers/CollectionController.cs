@@ -1,3 +1,4 @@
+using JobIntelligence.API.Filters;
 using JobIntelligence.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -5,6 +6,7 @@ namespace JobIntelligence.API.Controllers;
 
 [ApiController]
 [Route("internal/collection")]
+[AdminKey]
 public class CollectionController(IServiceScopeFactory scopeFactory, ILogger<CollectionController> logger) : ControllerBase
 {
     [HttpPost("trigger")]

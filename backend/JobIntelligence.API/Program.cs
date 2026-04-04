@@ -1,10 +1,27 @@
+using System.Threading.RateLimiting;
+using Amazon.Extensions.NETCore.Setup;
 using JobIntelligence.API.Services;
 using JobIntelligence.Infrastructure;
 using JobIntelligence.Infrastructure.Persistence;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddSystemsManager(source =>
+    {
+        source.Path = "/jobintelligence";
+        source.AwsOptions = new Amazon.Extensions.NETCore.Setup.AWSOptions
+        {
+            Region = Amazon.RegionEndpoint.USEast1
+        };
+        source.Optional = false;
+        source.ReloadAfter = TimeSpan.FromMinutes(30);
+    });
+}
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -12,6 +29,28 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<CollectionSchedulerService>();
 builder.Services.AddMemoryCache();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("chat-per-ip", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromHours(24),
+                PermitLimit = 10,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
+
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            """{"error":"Daily chat limit reached. Please try again tomorrow."}""", ct);
+    };
+});
 
 builder.Services.AddCors(options =>
 {
@@ -30,6 +69,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseRateLimiter();
 app.MapControllers();
 
 // Auto-apply migrations and seed on startup in development
