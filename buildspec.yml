@@ -9,26 +9,21 @@ phases:
   pre_build:
     commands:
       - echo "Restoring .NET dependencies..."
-      - dotnet restore JobIntelligence/backend/JobIntelligence.sln
-
+      - dotnet restore backend/JobIntelligence.sln
       - echo "Installing Angular dependencies..."
-      - cd JobIntelligence/frontend && npm ci && cd ../..
+      - cd frontend && npm ci && cd ..
 
   build:
     commands:
       - echo "Publishing .NET API..."
-      - dotnet publish JobIntelligence/backend/JobIntelligence.API/JobIntelligence.API.csproj
-          --configuration Release
-          --output publish/api
-          --no-restore
-
+      - dotnet publish backend/JobIntelligence.API/JobIntelligence.API.csproj --configuration Release --output publish/api --no-restore
       - echo "Building Angular frontend..."
-      - cd JobIntelligence/frontend && npm run build -- --configuration production && cd ../..
+      - cd frontend && npm run build -- --configuration production && cd ..
 
   post_build:
     commands:
       - echo "Packaging for Elastic Beanstalk..."
-      - cp -r JobIntelligence/frontend/dist/. publish/api/wwwroot/ 2>/dev/null || true
+      - cp -r frontend/dist/. publish/api/wwwroot/ 2>/dev/null || true
       - cd publish/api && zip -r ../../deploy.zip . && cd ../..
       - echo "Build complete. Artifact: deploy.zip"
 
