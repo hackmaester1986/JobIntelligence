@@ -25,7 +25,7 @@ phases:
       - echo "Packaging for Elastic Beanstalk..."
       - cp -r frontend/dist/. publish/api/wwwroot/ 2>/dev/null || true
       - cd publish/api && zip -r ../../deploy.zip . && cd ../..
-      - echo "Build complete. Artifact: deploy.zip"
+      - echo "Build complete. Artifact deploy.zip"
 
 artifacts:
   files:
