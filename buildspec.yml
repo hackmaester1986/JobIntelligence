@@ -29,6 +29,10 @@ phases:
       - echo Creating Procfile...
       - cp backend/JobIntelligence.API/Procfile publish/Procfile
 
+      - echo Copying nginx config...
+      - mkdir -p publish/.platform/nginx/conf.d
+      - cp .platform/nginx/conf.d/timeout.conf publish/.platform/nginx/conf.d/timeout.conf
+
   post_build:
     commands:
       - echo Build complete
