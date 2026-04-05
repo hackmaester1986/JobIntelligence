@@ -24,7 +24,7 @@ phases:
 
       - echo Copying Angular output into wwwroot...
       - mkdir -p publish/wwwroot
-      - cp -r frontend/dist/. publish/wwwroot/
+      - cp -r frontend/dist/frontend/browser/. publish/wwwroot/
 
       - echo Creating Procfile...
       - cp backend/JobIntelligence.API/Procfile publish/Procfile

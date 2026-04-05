@@ -70,7 +70,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseRateLimiter();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.MapControllers();
+app.MapFallbackToFile("index.html");
 
 // Auto-apply migrations and seed on startup in development
 if (app.Environment.IsDevelopment())
