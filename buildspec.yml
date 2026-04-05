@@ -27,7 +27,7 @@ phases:
       - cp -r frontend/dist/. publish/wwwroot/
 
       - echo Creating Procfile...
-      - echo "web dotnet JobIntelligence.API.dll" > publish/Procfile
+      - cp backend/JobIntelligence.API/Procfile publish/Procfile
 
   post_build:
     commands:
