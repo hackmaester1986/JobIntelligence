@@ -16,7 +16,7 @@ phases:
   build:
     commands:
       - echo "Publishing .NET API..."
-      - dotnet publish backend/JobIntelligence.API/JobIntelligence.API.csproj --configuration Release --output publish/api --no-restore
+      - dotnet publish backend/JobIntelligence.API/JobIntelligence.API.csproj --configuration Release --output publish/api
       - echo "Building Angular frontend..."
       - cd frontend && npm run build -- --configuration production && cd ..
 
@@ -24,6 +24,7 @@ phases:
     commands:
       - echo "Packaging for Elastic Beanstalk..."
       - cp -r frontend/dist/. publish/api/wwwroot/ 2>/dev/null || true
+      - echo "web dotnet JobIntelligence.API.dll" > publish/api/Procfile
       - cd publish/api && zip -r ../../deploy.zip . && cd ../..
       - echo "Build complete. Artifact deploy.zip"
 
