@@ -30,17 +30,26 @@ public static class DependencyInjection
 
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(configuration.GetConnectionString("DefaultConnection"));
             dataSourceBuilder.UsePasswordProvider(
-                passwordProvider: null,
+                passwordProvider: _ =>
+                {
+                    if (cachedPassword != null && DateTime.UtcNow < cacheExpiry)
+                        return cachedPassword;
+                    var response = secretsClient.GetSecretValueAsync(
+                        new GetSecretValueRequest { SecretId = secretArn }).GetAwaiter().GetResult();
+                    using var doc = JsonDocument.Parse(response.SecretString);
+                    cachedPassword = doc.RootElement.GetProperty("password").GetString()!;
+                    cacheExpiry = DateTime.UtcNow.AddMinutes(10);
+                    return cachedPassword;
+                },
                 passwordProviderAsync: async (_, ct) =>
                 {
-                    if (cachedPassword == null || DateTime.UtcNow >= cacheExpiry)
-                    {
-                        var response = await secretsClient.GetSecretValueAsync(
-                            new GetSecretValueRequest { SecretId = secretArn }, ct);
-                        using var doc = JsonDocument.Parse(response.SecretString);
-                        cachedPassword = doc.RootElement.GetProperty("password").GetString()!;
-                        cacheExpiry = DateTime.UtcNow.AddMinutes(10);
-                    }
+                    if (cachedPassword != null && DateTime.UtcNow < cacheExpiry)
+                        return cachedPassword;
+                    var response = await secretsClient.GetSecretValueAsync(
+                        new GetSecretValueRequest { SecretId = secretArn }, ct);
+                    using var doc = JsonDocument.Parse(response.SecretString);
+                    cachedPassword = doc.RootElement.GetProperty("password").GetString()!;
+                    cacheExpiry = DateTime.UtcNow.AddMinutes(10);
                     return cachedPassword;
                 });
 
