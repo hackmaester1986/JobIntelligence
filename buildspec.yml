@@ -5,30 +5,36 @@ phases:
     runtime-versions:
       dotnet: 8.0
       nodejs: 20
+    commands:
+      - echo Installing frontend dependencies...
+      - cd frontend && npm ci && cd ..
 
   pre_build:
     commands:
-      - echo "Restoring .NET dependencies..."
+      - echo Restoring .NET dependencies...
       - dotnet restore backend/JobIntelligence.sln
-      - echo "Installing Angular dependencies..."
-      - cd frontend && npm ci && cd ..
 
   build:
     commands:
-      - echo "Publishing .NET API..."
-      - dotnet publish backend/JobIntelligence.API/JobIntelligence.API.csproj --configuration Release --output publish/api
-      - echo "Building Angular frontend..."
+      - echo Building Angular frontend...
       - cd frontend && npm run build -- --configuration production && cd ..
+
+      - echo Publishing .NET API...
+      - dotnet publish backend/JobIntelligence.API/JobIntelligence.API.csproj --configuration Release --output publish
+
+      - echo Copying Angular output into wwwroot...
+      - mkdir -p publish/wwwroot
+      - cp -r frontend/dist/. publish/wwwroot/
+
+      - echo Creating Procfile...
+      - echo "web: dotnet JobIntelligence.API.dll" > publish/Procfile
 
   post_build:
     commands:
-      - echo "Packaging for Elastic Beanstalk..."
-      - cp -r frontend/dist/. publish/api/wwwroot/ 2>/dev/null || true
-      - echo "web dotnet JobIntelligence.API.dll" > publish/api/Procfile
-      - cd publish/api && zip -r ../../deploy.zip . && cd ../..
-      - echo "Build complete. Artifact deploy.zip"
+      - echo Build complete
+      - find publish -maxdepth 3 -type f | sort | head -100
 
 artifacts:
+  base-directory: publish
   files:
-    - deploy.zip
-  discard-paths: yes
+    - '**/*'
