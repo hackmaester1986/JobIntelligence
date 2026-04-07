@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Amazon.Extensions.NETCore.Setup;
+using JobIntelligence.API.Services;
 using JobIntelligence.Infrastructure;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.AspNetCore.RateLimiting;
@@ -26,6 +27,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddSingleton<CollectionCancellationService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddRateLimiter(options =>
