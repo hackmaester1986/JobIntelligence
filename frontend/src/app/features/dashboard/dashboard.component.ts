@@ -1,5 +1,5 @@
 import { Component, effect, inject, OnDestroy, signal } from '@angular/core';
-import { AsyncPipe, DatePipe, DecimalPipe, NgIf } from '@angular/common';
+import { DatePipe, DecimalPipe, NgIf } from '@angular/common';
 import { Subscription } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
@@ -15,7 +15,7 @@ import { DepartmentsChartComponent } from './components/departments-chart/depart
   selector: 'app-dashboard',
   standalone: true,
   imports: [
-    NgIf, AsyncPipe, DecimalPipe, DatePipe,
+    NgIf, DecimalPipe, DatePipe,
     MatCardModule, MatProgressSpinnerModule,
     TopCompaniesChartComponent, SeniorityChartComponent,
     DepartmentsChartComponent

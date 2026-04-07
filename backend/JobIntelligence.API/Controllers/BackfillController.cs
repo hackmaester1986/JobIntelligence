@@ -75,6 +75,10 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
 
     };
 
+    [HttpGet("ping")]
+    public IActionResult Ping() =>
+        Ok(new { status = "ok", utc = DateTime.UtcNow });
+
     [HttpPost("test-haiku")]
     public async Task<IActionResult> TestHaiku()
     {
