@@ -76,6 +76,7 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
     };
 
     [HttpGet("ping")]
+    [HttpPost("ping")]
     public IActionResult Ping() =>
         Ok(new { status = "ok", utc = DateTime.UtcNow });
 
