@@ -1,5 +1,5 @@
 import { Component, effect, inject, OnDestroy, signal } from '@angular/core';
-import { AsyncPipe, DecimalPipe, NgIf } from '@angular/common';
+import { AsyncPipe, DatePipe, DecimalPipe, NgIf } from '@angular/common';
 import { Subscription } from 'rxjs';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
@@ -15,7 +15,7 @@ import { DepartmentsChartComponent } from './components/departments-chart/depart
   selector: 'app-dashboard',
   standalone: true,
   imports: [
-    NgIf, AsyncPipe, DecimalPipe,
+    NgIf, AsyncPipe, DecimalPipe, DatePipe,
     MatCardModule, MatProgressSpinnerModule,
     TopCompaniesChartComponent, SeniorityChartComponent,
     DepartmentsChartComponent
@@ -43,7 +43,7 @@ export class DashboardComponent implements OnDestroy {
 
   private load(): void {
     this.loading.set(true);
-    this.statsService.getStats(this.locationFilter.usOnly() ? true : undefined).subscribe({
+    this.statsService.getStatsSnapshot(this.locationFilter.usOnly() ? true : undefined).subscribe({
       next: s => { this.stats.set(s); this.loading.set(false); },
       error: () => { this.error.set('Failed to load stats'); this.loading.set(false); }
     });

@@ -4,6 +4,8 @@ using JobIntelligence.Infrastructure.Parsing;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using System.Text.Json;
 using static JobIntelligence.Infrastructure.Parsing.SkillMatcher;
 
 namespace JobIntelligence.Infrastructure.Collectors;
@@ -125,6 +127,101 @@ public class CollectionOrchestrator(
             logger.LogInformation("{Source} collection complete: fetched={F} new={N} updated={U} removed={R}",
                 collector.SourceName, totalFetched, totalNew, totalUpdated, totalRemoved);
         }
+
+        // Write dashboard snapshots once after all collectors finish
+        try
+        {
+            await WriteDashboardSnapshotsAsync(ct);
+            logger.LogInformation("Dashboard snapshots written");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to write dashboard snapshots");
+        }
+    }
+
+    private async Task WriteDashboardSnapshotsAsync(CancellationToken ct)
+    {
+        var conn = (NpgsqlConnection)db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        foreach (var isUs in new[] { false, true })
+        {
+            var usFilter = isUs
+                ? "AND (jp.is_us_posting IS TRUE OR jp.is_us_posting IS NULL)"
+                : "";
+
+            var sql = $"""
+                WITH filtered_jobs AS (
+                    SELECT jp.company_id, jp.is_remote, jp.is_hybrid, jp.first_seen_at, jp.seniority_level, jp.department
+                    FROM job_postings jp
+                    JOIN companies c ON c.id = jp.company_id
+                    WHERE c.is_tech_hiring IS DISTINCT FROM FALSE AND jp.is_active
+                    {usFilter}
+                ),
+                valid_companies AS (
+                    SELECT id, canonical_name AS name, logo_url AS "logoUrl", active_job_count AS "jobCount"
+                    FROM companies WHERE is_tech_hiring IS DISTINCT FROM FALSE
+                ),
+                counts AS (
+                    SELECT
+                        COUNT(*) AS total_active,
+                        COUNT(*) FILTER (WHERE is_remote) AS remote,
+                        COUNT(*) FILTER (WHERE is_hybrid) AS hybrid,
+                        COUNT(*) FILTER (WHERE first_seen_at >= CURRENT_DATE) AS active_today
+                    FROM filtered_jobs
+                ),
+                seniority AS (
+                    SELECT seniority_level AS label, COUNT(*) AS count
+                    FROM filtered_jobs WHERE seniority_level IS NOT NULL
+                    GROUP BY seniority_level ORDER BY count DESC
+                ),
+                departments AS (
+                    SELECT department, COUNT(*) AS count
+                    FROM filtered_jobs WHERE department IS NOT NULL
+                    GROUP BY department ORDER BY count DESC LIMIT 10
+                ),
+                company_count AS (SELECT COUNT(*) AS total FROM valid_companies),
+                top_companies AS (SELECT * FROM valid_companies ORDER BY "jobCount" DESC LIMIT 10)
+                SELECT
+                    (SELECT total_active FROM counts),
+                    (SELECT total FROM company_count),
+                    (SELECT remote FROM counts),
+                    (SELECT hybrid FROM counts),
+                    (SELECT active_today FROM counts),
+                    (SELECT JSON_AGG(ROW_TO_JSON(top_companies)) FROM top_companies),
+                    (SELECT JSON_AGG(ROW_TO_JSON(seniority)) FROM seniority),
+                    (SELECT JSON_AGG(ROW_TO_JSON(departments)) FROM departments)
+                """;
+
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            await reader.ReadAsync(ct);
+
+            var totalActive = reader.GetInt64(0);
+            var remote      = reader.GetInt64(2);
+            var hybrid      = reader.GetInt64(3);
+
+            var snapshot = new DashboardSnapshot
+            {
+                IsUs            = isUs,
+                TotalActiveJobs = totalActive,
+                TotalCompanies  = reader.GetInt64(1),
+                RemoteJobs      = remote,
+                HybridJobs      = hybrid,
+                OnsiteJobs      = totalActive - remote - hybrid,
+                ActiveToday     = reader.GetInt64(4),
+                TopCompanies    = JsonDocument.Parse(reader.IsDBNull(5) ? "[]" : reader.GetString(5)),
+                JobsBySeniority = JsonDocument.Parse(reader.IsDBNull(6) ? "[]" : reader.GetString(6)),
+                TopDepartments  = JsonDocument.Parse(reader.IsDBNull(7) ? "[]" : reader.GetString(7)),
+            };
+
+            await reader.CloseAsync();
+            db.DashboardSnapshots.Add(snapshot);
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task<List<Company>> GetCompaniesForSource(string sourceName, CancellationToken ct)

@@ -29,44 +29,55 @@ public class StatsController(ApplicationDbContext db,IMemoryCache memoryCache) :
 
         // Single round-trip: all counts + grouped data in one query using CTEs
         var sql = $"""
-            WITH tech_companies AS (
-                SELECT id FROM companies WHERE is_tech_hiring IS DISTINCT FROM FALSE
+            WITH filtered_jobs AS (
+                SELECT
+                    jp.company_id,
+                    jp.is_active,
+                    jp.is_remote,
+                    jp.is_hybrid,
+                    jp.first_seen_at,
+                    jp.seniority_level,
+                    jp.department
+                FROM job_postings jp
+                JOIN companies c
+                ON c.id = jp.company_id
+                WHERE c.is_tech_hiring IS DISTINCT FROM FALSE and jp.is_active
+                {usFilter}
+            ),
+            valid_companies AS (
+                SELECT id, canonical_name AS name, logo_url AS "logoUrl", active_job_count AS "jobCount" 
+                FROM companies WHERE is_tech_hiring IS DISTINCT FROM FALSE
             ),
             counts AS (
                 SELECT
-                    COUNT(*) FILTER (WHERE is_active)                             AS total_active,
-                    COUNT(*) FILTER (WHERE is_active AND is_remote)               AS remote,
-                    COUNT(*) FILTER (WHERE is_active AND is_hybrid)               AS hybrid,
-                    COUNT(*) FILTER (WHERE is_active AND first_seen_at >= @since) AS active_today
-                FROM job_postings jp
-                WHERE jp.company_id IN (SELECT id FROM tech_companies)
-                  {usFilter}
-            ),
-            company_count AS (
-                SELECT COUNT(*) AS total FROM companies
-                WHERE active_job_count > 0 AND is_tech_hiring IS DISTINCT FROM FALSE
-            ),
-            top_companies AS (
-                SELECT id, canonical_name AS name, logo_url AS "logoUrl", active_job_count AS "jobCount"
-                FROM companies
-                WHERE active_job_count > 0 AND is_tech_hiring IS DISTINCT FROM FALSE
-                ORDER BY active_job_count DESC LIMIT 10
+                    COUNT(*) AS total_active,
+                    COUNT(*) FILTER (WHERE is_remote) AS remote,
+                    COUNT(*) FILTER (WHERE is_hybrid) AS hybrid,
+                    COUNT(*) FILTER (WHERE first_seen_at >= CURRENT_DATE) AS active_today
+                FROM filtered_jobs
             ),
             seniority AS (
                 SELECT seniority_level AS label, COUNT(*) AS count
-                FROM job_postings jp
-                WHERE jp.is_active AND jp.seniority_level IS NOT NULL
-                  AND jp.company_id IN (SELECT id FROM tech_companies)
-                  {usFilter}
-                GROUP BY seniority_level ORDER BY count DESC
+                FROM filtered_jobs
+                WHERE seniority_level IS NOT NULL
+                GROUP BY seniority_level
+                ORDER BY count DESC
             ),
             departments AS (
                 SELECT department, COUNT(*) AS count
-                FROM job_postings jp
-                WHERE jp.is_active AND jp.department IS NOT NULL
-                  AND jp.company_id IN (SELECT id FROM tech_companies)
-                  {usFilter}
-                GROUP BY department ORDER BY count DESC LIMIT 10
+                FROM filtered_jobs
+                WHERE department IS NOT NULL
+                GROUP BY department
+                ORDER BY count DESC
+                LIMIT 10
+            ),
+            company_count AS (
+                SELECT COUNT(*) AS total FROM valid_companies
+            ),
+            top_companies AS (
+                SELECT *
+                FROM valid_companies
+                ORDER BY "jobCount" DESC LIMIT 10
             )
             SELECT
                 (SELECT total_active  FROM counts)       AS total_active_jobs,
@@ -77,7 +88,9 @@ public class StatsController(ApplicationDbContext db,IMemoryCache memoryCache) :
                 (SELECT JSON_AGG(ROW_TO_JSON(top_companies)) FROM top_companies) AS top_companies,
                 (SELECT JSON_AGG(ROW_TO_JSON(seniority))     FROM seniority)     AS by_seniority,
                 (SELECT JSON_AGG(ROW_TO_JSON(departments))   FROM departments)   AS top_departments
-            """;
+            
+            
+        """;
 
         await using var cmd = new NpgsqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("since", since);
@@ -101,5 +114,31 @@ public class StatsController(ApplicationDbContext db,IMemoryCache memoryCache) :
         };
         memoryCache.Set(cacheKey, stats, TimeSpan.FromMinutes(60));
         return Ok(stats);
+    }
+
+    [HttpGet("snapshot")]
+    public async Task<IActionResult> GetStatsSnapshot([FromQuery] bool? isUs, CancellationToken ct)
+    {
+        var snapshot = await db.DashboardSnapshots
+            .Where(s => s.IsUs == (isUs == true))
+            .OrderByDescending(s => s.SnapshotAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (snapshot == null)
+            return NotFound(new { error = "No snapshot available yet. Run a collection first." });
+
+        return Ok(new
+        {
+            snapshotAt      = snapshot.SnapshotAt,
+            totalActiveJobs = snapshot.TotalActiveJobs,
+            totalCompanies  = snapshot.TotalCompanies,
+            remoteJobs      = snapshot.RemoteJobs,
+            hybridJobs      = snapshot.HybridJobs,
+            onsiteJobs      = snapshot.OnsiteJobs,
+            activeToday     = snapshot.ActiveToday,
+            topCompanies    = snapshot.TopCompanies,
+            jobsBySeniority = snapshot.JobsBySeniority,
+            topDepartments  = snapshot.TopDepartments,
+        });
     }
 }

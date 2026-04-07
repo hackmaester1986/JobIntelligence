@@ -1,3 +1,9 @@
+.snapshot-timestamp {
+  font-size: 12px;
+  color: rgba(0,0,0,.38);
+  margin-bottom: 16px;
+}
+
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

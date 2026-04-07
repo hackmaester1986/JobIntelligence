@@ -10,4 +10,8 @@ export class StatsService {
   getStats(isUs?: boolean): Observable<DashboardStats> {
     return this.api.get<DashboardStats>('/stats', isUs != null ? { isUs } : undefined);
   }
+
+  getStatsSnapshot(isUs?: boolean): Observable<DashboardStats> {
+    return this.api.get<DashboardStats>('/stats/snapshot', isUs != null ? { isUs } : undefined);
+  }
 }

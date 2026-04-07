@@ -386,76 +386,74 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
     }
 
     [HttpPost("smartrecruiters-apply-urls")]
-    public IActionResult BackfillSmartRecruitersApplyUrls([FromQuery] int batchSize = 500, [FromQuery] int concurrency = 10)
+    public IActionResult BackfillSmartRecruitersApplyUrls()
     {
-        logger.LogInformation("SmartRecruiters apply URL backfill triggered for batch of {BatchSize}", batchSize);
+        logger.LogInformation("SmartRecruiters apply URL backfill triggered");
 
         _ = Task.Run(async () =>
         {
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-            var client = httpClientFactory.CreateClient("SmartRecruiters");
 
             var source = await db.JobSources.FirstAsync(s => s.Name == "smartrecruiters");
 
-            var postings = await db.JobPostings
-                .Include(p => p.Company)
-                .Where(p => p.SourceId == source.Id
-                            && p.Company.SmartRecruitersSlug != null)
-                .OrderByDescending(p => p.FirstSeenAt)
-                .Take(batchSize)
-                .ToListAsync();
+            // Load slug map once — avoids a JOIN on every batch query
+            var slugMap = await db.Companies
+                .Where(c => c.SmartRecruitersSlug != null)
+                .Select(c => new { c.Id, Slug = c.SmartRecruitersSlug! })
+                .AsNoTracking()
+                .ToDictionaryAsync(c => c.Id, c => c.Slug);
 
-            logger.LogInformation("SmartRecruiters apply URL backfill: {Count} postings to process", postings.Count);
+            var eligibleCompanyIds = slugMap.Keys.ToList();
 
-            var semaphore = new System.Threading.SemaphoreSlim(concurrency);
-            var fetchTasks = postings.Select(async posting =>
+            int updated = 0;
+            long lastId = 0;
+
+            while (true)
             {
-                await semaphore.WaitAsync();
-                try
-                {
-                    var refUrl = $"v1/companies/{posting.Company.SmartRecruitersSlug}/postings/{posting.ExternalId}";
-                    var detail = await client.GetFromJsonAsync<SrDetailDto>(refUrl);
-                    return new SrFetchResult(posting, detail, null);
-                }
-                catch (Exception ex)
-                {
-                    return new SrFetchResult(posting, null, ex);
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
+                var batch = await db.JobPostings
+                    .Where(p => p.Id > lastId
+                                && p.SourceId == source.Id
+                                && eligibleCompanyIds.Contains(p.CompanyId))
+                    .OrderBy(p => p.Id)
+                    .Take(200)
+                    .Select(p => new { p.Id, p.ExternalId, p.Title, p.ApplyUrl, p.CompanyId })
+                    .AsNoTracking()
+                    .ToListAsync();
 
-            var results = await Task.WhenAll(fetchTasks);
+                if (batch.Count == 0) break;
 
-            int updated = 0, failed = 0;
-            foreach (var (posting, detail, error) in results)
-            {
-                if (error != null)
+                foreach (var item in batch)
                 {
-                    logger.LogWarning(error, "SmartRecruiters apply URL backfill: failed to fetch detail for {JobId}", posting.ExternalId);
-                    failed++;
-                    continue;
+                    var slug = slugMap[item.CompanyId];
+                    var correctUrl = BuildSrApplyUrl(slug, item.ExternalId, item.Title);
+                    if (item.ApplyUrl != correctUrl)
+                    {
+                        await db.JobPostings
+                            .Where(p => p.Id == item.Id)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(p => p.ApplyUrl, correctUrl)
+                                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+                        updated++;
+                    }
                 }
 
-                var correctUrl = detail?.PostingUrl ?? detail?.ApplyUrl;
-                if (correctUrl != null && posting.ApplyUrl != correctUrl)
-                {
-                    posting.ApplyUrl = correctUrl;
-                    posting.UpdatedAt = DateTime.UtcNow;
-                    updated++;
-                }
+                lastId = batch[^1].Id;
+                logger.LogInformation("SmartRecruiters apply URL backfill: {Count} updated so far", updated);
             }
 
-            await db.SaveChangesAsync();
-            logger.LogInformation(
-                "SmartRecruiters apply URL backfill complete: updated={U} failed={F}", updated, failed);
+            logger.LogInformation("SmartRecruiters apply URL backfill complete: {Total} updated", updated);
         });
 
-        return Accepted(new { message = $"SmartRecruiters apply URL backfill started for batch of {batchSize}" });
+        return Accepted(new { message = "SmartRecruiters apply URL backfill started" });
+    }
+
+    private static string BuildSrApplyUrl(string companySlug, string jobId, string jobTitle)
+    {
+        var titleSlug = string.IsNullOrEmpty(jobTitle)
+            ? jobId
+            : System.Text.RegularExpressions.Regex.Replace(jobTitle.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+        return $"https://jobs.smartrecruiters.com/{companySlug}/{jobId}-{titleSlug}";
     }
 
     private static string? BuildSrDescriptionHtml(SrDetailDto? detail)

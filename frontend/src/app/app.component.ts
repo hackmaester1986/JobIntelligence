@@ -6,6 +6,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
 import { AiChatComponent } from './features/dashboard/components/ai-chat/ai-chat.component';
 import { ChatDialogComponent } from './features/dashboard/components/ai-chat/chat-dialog.component';
 import { LocationFilterService } from './core/services/location-filter.service';
@@ -15,6 +17,7 @@ import { LocationFilterService } from './core/services/location-filter.service';
   imports: [
     RouterOutlet, RouterLink, RouterLinkActive, NgClass,
     MatToolbarModule, MatButtonModule, MatIconModule, MatButtonToggleModule, MatDialogModule,
+    MatMenuModule, MatDividerModule,
     AiChatComponent
   ],
   templateUrl: './app.component.html',

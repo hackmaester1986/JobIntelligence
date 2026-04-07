@@ -25,4 +25,5 @@ export interface DashboardStats {
   topCompanies: TopCompany[];
   jobsBySeniority: SeniorityBucket[];
   topDepartments: DepartmentBucket[];
+  snapshotAt?: string;
 }

@@ -1,5 +1,8 @@
 .spacer { flex: 1 1 auto; }
 .active-link { background: rgba(255,255,255,0.15); border-radius: 4px; }
+.active-menu-item { font-weight: 600; }
+
+.mobile-menu-btn { display: none; }
 
 .location-toggle {
   margin-left: 16px;
@@ -62,6 +65,11 @@
   z-index: 100;
   display: none;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+@media (max-width: 768px) {
+  .desktop-nav { display: none !important; }
+  .mobile-menu-btn { display: inline-flex; }
 }
 
 @media (max-width: 960px) {

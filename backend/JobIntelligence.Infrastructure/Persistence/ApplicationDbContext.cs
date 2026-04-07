@@ -14,6 +14,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<CollectionRun> CollectionRuns => Set<CollectionRun>();
     public DbSet<MlPrediction> MlPredictions => Set<MlPrediction>();
     public DbSet<CompanyJobSnapshot> CompanyJobSnapshots => Set<CompanyJobSnapshot>();
+    public DbSet<DashboardSnapshot> DashboardSnapshots => Set<DashboardSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

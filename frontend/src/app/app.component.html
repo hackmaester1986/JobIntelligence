@@ -1,15 +1,36 @@
 <mat-toolbar color="primary">
   <span>JobIntelligence</span>
   <span class="spacer"></span>
-  <a mat-button routerLink="/dashboard" routerLinkActive="active-link">Dashboard</a>
-  <a mat-button routerLink="/jobs" routerLinkActive="active-link">Jobs</a>
-  <a mat-button routerLink="/companies" routerLinkActive="active-link">Companies</a>
-  <a mat-button routerLink="/analysis" routerLinkActive="active-link">Analysis</a>
-  <mat-button-toggle-group class="location-toggle" [value]="locationFilter.usOnly() ? 'us' : 'all'" (change)="locationFilter.usOnly.set($event.value === 'us')">
+
+  <!-- Desktop nav -->
+  <a class="desktop-nav" mat-button routerLink="/dashboard" routerLinkActive="active-link">Dashboard</a>
+  <a class="desktop-nav" mat-button routerLink="/jobs" routerLinkActive="active-link">Jobs</a>
+  <a class="desktop-nav" mat-button routerLink="/companies" routerLinkActive="active-link">Companies</a>
+  <a class="desktop-nav" mat-button routerLink="/analysis" routerLinkActive="active-link">Analysis</a>
+  <mat-button-toggle-group class="location-toggle desktop-nav" [value]="locationFilter.usOnly() ? 'us' : 'all'" (change)="locationFilter.usOnly.set($event.value === 'us')">
     <mat-button-toggle value="us">US</mat-button-toggle>
     <mat-button-toggle value="all">International</mat-button-toggle>
   </mat-button-toggle-group>
+
+  <!-- Mobile hamburger -->
+  <button class="mobile-menu-btn" mat-icon-button [matMenuTriggerFor]="mobileMenu" aria-label="Open menu">
+    <mat-icon>menu</mat-icon>
+  </button>
 </mat-toolbar>
+
+<mat-menu #mobileMenu="matMenu">
+  <a mat-menu-item routerLink="/dashboard"><mat-icon>dashboard</mat-icon>Dashboard</a>
+  <a mat-menu-item routerLink="/jobs"><mat-icon>work</mat-icon>Jobs</a>
+  <a mat-menu-item routerLink="/companies"><mat-icon>business</mat-icon>Companies</a>
+  <a mat-menu-item routerLink="/analysis"><mat-icon>bar_chart</mat-icon>Analysis</a>
+  <mat-divider />
+  <button mat-menu-item (click)="locationFilter.usOnly.set(true)" [class.active-menu-item]="locationFilter.usOnly()">
+    <mat-icon>{{ locationFilter.usOnly() ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>US Only
+  </button>
+  <button mat-menu-item (click)="locationFilter.usOnly.set(false)" [class.active-menu-item]="!locationFilter.usOnly()">
+    <mat-icon>{{ !locationFilter.usOnly() ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>International
+  </button>
+</mat-menu>
 
 <div class="app-layout">
   <main class="main-column">

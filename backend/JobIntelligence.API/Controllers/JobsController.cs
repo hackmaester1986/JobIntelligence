@@ -1,12 +1,13 @@
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace JobIntelligence.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class JobsController(ApplicationDbContext db) : ControllerBase
+public class JobsController(ApplicationDbContext db, IMemoryCache cache) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetJobs(
@@ -24,9 +25,8 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
         CancellationToken ct = default)
     {
         var query = db.JobPostings
-            .Include(j => j.Company)
-            .Include(j => j.Source)
             .Where(j => j.IsActive && j.Company.IsTechHiring != false)
+            .AsNoTracking()
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(q))
@@ -59,7 +59,12 @@ public class JobsController(ApplicationDbContext db) : ControllerBase
         if (!string.IsNullOrEmpty(authenticityLabel))
             query = query.Where(j => j.AuthenticityLabel == authenticityLabel);
 
-        var total = await query.CountAsync(ct);
+        var cacheKey = $"jobs:count:{q}:{skill}:{source}:{companyId}:{seniority}:{isRemote}:{isUs}:{authenticityLabel}:{string.Join(",", industries ?? [])}";
+        if (!cache.TryGetValue(cacheKey, out int total))
+        {
+            total = await query.CountAsync(ct);
+            cache.Set(cacheKey, total, TimeSpan.FromMinutes(5));
+        }
 
         var jobs = await query
             .OrderByDescending(j => j.FirstSeenAt)

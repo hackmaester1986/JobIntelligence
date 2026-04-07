@@ -7,6 +7,10 @@
 </div>
 
 <ng-container *ngIf="stats() as s">
+  <div *ngIf="s.snapshotAt" class="snapshot-timestamp">
+    Data as of {{ s.snapshotAt | date:'MMM d, y h:mm a' }}
+  </div>
+
   <!-- Stat Cards -->
   <div class="stat-cards">
     <mat-card>
