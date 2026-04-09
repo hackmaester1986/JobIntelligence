@@ -120,9 +120,15 @@ public class CollectionOrchestrator(
                 await Task.Delay(100, ct);
             }
 
-            run.CompletedAt = DateTime.UtcNow;
-            run.Status = "success";
-            await db.SaveChangesAsync(ct);
+            await db.CollectionRuns
+                .Where(r => r.Id == run.Id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.CompletedAt, DateTime.UtcNow)
+                    .SetProperty(r => r.Status, "success")
+                    .SetProperty(r => r.JobsFetched, totalFetched)
+                    .SetProperty(r => r.JobsNew, totalNew)
+                    .SetProperty(r => r.JobsUpdated, totalUpdated)
+                    .SetProperty(r => r.JobsRemoved, totalRemoved), ct);
 
             logger.LogInformation("{Source} collection complete: fetched={F} new={N} updated={U} removed={R}",
                 collector.SourceName, totalFetched, totalNew, totalUpdated, totalRemoved);
