@@ -222,34 +222,27 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
 
     private async Task<string> ExecuteGetStats(bool? isUs, CancellationToken ct)
     {
-        var baseQuery = db.JobPostings.Where(j => j.IsActive && j.Company.IsTechHiring != false);
-        if (isUs == true)
-            baseQuery = baseQuery.Where(j => j.IsUsPosting == true || j.IsUsPosting == null);
+        var snapshot = await db.DashboardSnapshots
+            .Where(s => s.IsUs == (isUs == true))
+            .OrderByDescending(s => s.SnapshotAt)
+            .FirstOrDefaultAsync(ct);
 
-        var totalActiveJobs = await baseQuery.CountAsync(ct);
-        var totalCompanies = await db.Companies.CountAsync(c => c.IsTechHiring != false && c.JobPostings.Any(j => j.IsActive), ct);
-        var remoteJobs = await baseQuery.CountAsync(j => j.IsRemote, ct);
+        if (snapshot == null)
+            return """{"error":"No snapshot available yet"}""";
 
-        var topCompanies = await db.Companies
-            .Where(c => c.IsTechHiring != false && c.JobPostings.Any(j => j.IsActive))
-            .Select(c => new { Name = c.CanonicalName, JobCount = c.JobPostings.Count(j => j.IsActive) })
-            .OrderByDescending(x => x.JobCount).Take(5)
-            .ToListAsync(ct);
-
-        var bySeniority = await baseQuery
-            .Where(j => j.SeniorityLevel != null)
-            .GroupBy(j => j.SeniorityLevel!)
-            .Select(g => new { Level = g.Key, Count = g.Count() })
-            .ToListAsync(ct);
-
-        var topDepartments = await baseQuery
-            .Where(j => j.Department != null)
-            .GroupBy(j => j.Department!)
-            .Select(g => new { Department = g.Key, Count = g.Count() })
-            .OrderByDescending(x => x.Count).Take(10)
-            .ToListAsync(ct);
-
-        return JsonSerializer.Serialize(new { totalActiveJobs, totalCompanies, remoteJobs, topCompanies, bySeniority, topDepartments });
+        return JsonSerializer.Serialize(new
+        {
+            totalActiveJobs = snapshot.TotalActiveJobs,
+            totalCompanies  = snapshot.TotalCompanies,
+            remoteJobs      = snapshot.RemoteJobs,
+            hybridJobs      = snapshot.HybridJobs,
+            onsiteJobs      = snapshot.OnsiteJobs,
+            activeToday     = snapshot.ActiveToday,
+            topCompanies    = snapshot.TopCompanies,
+            jobsBySeniority = snapshot.JobsBySeniority,
+            topDepartments  = snapshot.TopDepartments,
+            snapshotAt      = snapshot.SnapshotAt,
+        });
     }
 
     private async Task<string> ExecuteGetJobTrends(IReadOnlyDictionary<string, JsonElement> input, bool? isUs, CancellationToken ct)
