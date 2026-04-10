@@ -402,49 +402,31 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
 
             var source = await db.JobSources.FirstAsync(s => s.Name == "smartrecruiters");
 
-            // Load slug map once — avoids a JOIN on every batch query
-            var slugMap = await db.Companies
-                .Where(c => c.SmartRecruitersSlug != null)
-                .Select(c => new { c.Id, Slug = c.SmartRecruitersSlug! })
-                .AsNoTracking()
-                .ToDictionaryAsync(c => c.Id, c => c.Slug);
-
-            var eligibleCompanyIds = slugMap.Keys.ToList();
-
             int updated = 0;
-            long lastId = 0;
 
-            while (true)
+            var companies = await db.Companies
+                .Where(c => c.SmartRecruitersSlug != null)
+                .Select(c => new { c.Id, c.SmartRecruitersSlug })
+                .ToDictionaryAsync(c => c.Id, c => c.SmartRecruitersSlug!);
+            
+            foreach(var company in companies)
             {
-                var batch = await db.JobPostings
-                    .Where(p => p.Id > lastId
-                                && p.SourceId == source.Id
-                                && eligibleCompanyIds.Contains(p.CompanyId))
-                    .OrderBy(p => p.Id)
-                    .Take(200)
-                    .Select(p => new { p.Id, p.ExternalId, p.Title, p.ApplyUrl, p.CompanyId })
-                    .AsNoTracking()
+                var postings = await db.JobPostings
+                    .Where(p => p.CompanyId == company.Key && p.IsActive)
                     .ToListAsync();
 
-                if (batch.Count == 0) break;
-
-                foreach (var item in batch)
+                foreach(var posting in postings)
                 {
-                    var slug = slugMap[item.CompanyId];
-                    var correctUrl = BuildSrApplyUrl(slug, item.ExternalId, item.Title);
-                    if (item.ApplyUrl != correctUrl)
+                    var correctUrl = BuildSrApplyUrl(company.Value, posting.ExternalId, posting.Title);
+                    if (posting.ApplyUrl != correctUrl)
                     {
-                        await db.JobPostings
-                            .Where(p => p.Id == item.Id)
-                            .ExecuteUpdateAsync(s => s
-                                .SetProperty(p => p.ApplyUrl, correctUrl)
-                                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+                        posting.ApplyUrl = correctUrl;
+                        posting.UpdatedAt = DateTime.UtcNow;
                         updated++;
                     }
                 }
-
-                lastId = batch[^1].Id;
-                logger.LogInformation("SmartRecruiters apply URL backfill: {Count} updated so far", updated);
+                var updatedCount = await db.SaveChangesAsync();
+                logger.LogInformation("SmartRecruiters apply URL backfill: companyId={CompanyId} updated {Count} postings", company.Key, updatedCount);
             }
 
             logger.LogInformation("SmartRecruiters apply URL backfill complete: {Total} updated", updated);

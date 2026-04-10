@@ -1,4 +1,5 @@
-<a mat-button routerLink="/companies">&larr; Back to Companies</a>
+<a mat-button *ngIf="!hasAnalysisState" routerLink="/companies">&larr; Back to Companies</a>
+<button mat-button *ngIf="hasAnalysisState" (click)="goBack()">&larr; Back to Analysis</button>
 
 <div *ngIf="loading()"><mat-spinner style="margin: 48px auto"></mat-spinner></div>
 

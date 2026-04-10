@@ -1,5 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DatePipe, DecimalPipe, NgIf, PercentPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -22,6 +22,7 @@ import { CompanyHiringChartComponent } from './company-hiring-chart/company-hiri
 })
 export class CompanyDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private companiesService = inject(CompaniesService);
 
   company       = signal<Company | null>(null);
@@ -30,8 +31,10 @@ export class CompanyDetailComponent implements OnInit {
   chartsLoading = signal(true);
   range         = signal('1w');
   companyId     = 0;
+  hasAnalysisState = false;
 
   ngOnInit(): void {
+    this.hasAnalysisState = !!localStorage.getItem('analysisState');
     this.companyId = Number(this.route.snapshot.paramMap.get('id'));
     this.companiesService.getCompany(this.companyId).subscribe({
       next: c => { this.company.set(c); this.loading.set(false); },
@@ -51,5 +54,9 @@ export class CompanyDetailComponent implements OnInit {
   onRangeChange(r: string): void {
     this.range.set(r);
     this.loadSnapshots(r);
+  }
+
+  goBack(): void {
+    this.router.navigate(['/analysis']);
   }
 }

@@ -67,6 +67,84 @@
 .chart-wrap {
   height: 520px;
   position: relative;
+  cursor: pointer;
+}
+
+.bucket-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 32px 0 16px;
+
+  h2 { margin: 0; font-size: 18px; font-weight: 500; }
+  .bucket-count { font-size: 13px; color: rgba(0,0,0,.54); }
+}
+
+.company-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.company-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    transform: translateY(-2px);
+  }
+
+  mat-card-content { padding: 12px 16px !important; }
+}
+
+.company-card-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+
+.company-info {
+  flex: 1;
+  min-width: 0;
+
+  .company-name {
+    font-weight: 500;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .company-meta {
+    font-size: 12px;
+    color: rgba(0,0,0,.54);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.company-jobs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+
+  .job-count {
+    font-size: 18px;
+    font-weight: 600;
+    color: #3f51b5;
+    line-height: 1;
+  }
+
+  .job-label {
+    font-size: 10px;
+    color: rgba(0,0,0,.54);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+  }
 }
 
 @media (max-width: 700px) {

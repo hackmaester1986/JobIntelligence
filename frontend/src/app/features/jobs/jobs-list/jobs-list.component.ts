@@ -57,6 +57,16 @@ export class JobsListComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    const raw = localStorage.getItem('jobsState');
+    if (raw) {
+      localStorage.removeItem('jobsState');
+      const state = JSON.parse(raw);
+      this.titleQ             = state.titleQ ?? '';
+      this.skillQ             = state.skillQ ?? '';
+      this.selectedIndustries = new Set<string>(state.selectedIndustries ?? []);
+      this.filters            = state.filters ?? this.filters;
+    }
+
     this.searchSub = this.searchSubject.pipe(
       debounceTime(300)
     ).subscribe(() => {
@@ -89,6 +99,12 @@ export class JobsListComponent implements OnInit, OnDestroy {
     this.searchSub.unsubscribe();
     this.loadSub.unsubscribe();
     this.locationSub.unsubscribe();
+    localStorage.setItem('jobsState', JSON.stringify({
+      titleQ: this.titleQ,
+      skillQ: this.skillQ,
+      selectedIndustries: [...this.selectedIndustries],
+      filters: this.filters,
+    }));
   }
 
   onSearchInput(): void { this.searchSubject.next(); }

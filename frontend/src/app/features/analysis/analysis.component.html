@@ -33,10 +33,10 @@
     <mat-card *ngIf="!loading()" class="chart-card">
       <mat-card-header>
         <mat-card-title>{{ currentMetricLabel }}</mat-card-title>
-        <mat-card-subtitle>Number of companies per bucket · {{ locationFilter.usOnly() ? 'US jobs' : 'All jobs' }}</mat-card-subtitle>
+        <mat-card-subtitle>Click a bar to see companies · {{ locationFilter.usOnly() ? 'US jobs' : 'All jobs' }}</mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
-        <div class="chart-wrap">
+        <div class="chart-wrap" (click)="onChartClick($event)">
           <canvas baseChart
             [data]="chartData()"
             [options]="chartOptions"
@@ -45,5 +45,48 @@
         </div>
       </mat-card-content>
     </mat-card>
+
+    <ng-container *ngIf="selectedBucket()">
+      <div class="bucket-header">
+        <h2>Companies in bucket: <strong>{{ selectedBucket() }}</strong></h2>
+        <span class="bucket-count" *ngIf="!bucketLoading()">{{ bucketCompanies().length }} companies</span>
+      </div>
+
+      <div *ngIf="bucketLoading()" class="loading-wrap">
+        <mat-spinner diameter="40"></mat-spinner>
+      </div>
+
+      <div *ngIf="!bucketLoading()" class="company-grid">
+        <mat-card
+          *ngFor="let company of pagedCompanies()"
+          class="company-card"
+          (click)="goToCompany(company.id)">
+          <mat-card-content>
+            <div class="company-card-inner">
+              <div class="company-info">
+                <div class="company-name">{{ company.canonicalName }}</div>
+                <div class="company-meta" *ngIf="company.industry">{{ company.industry }}</div>
+                <div class="company-meta" *ngIf="company.headquartersCity">
+                  {{ company.headquartersCity }}{{ company.headquartersCountry ? ', ' + company.headquartersCountry : '' }}
+                </div>
+              </div>
+              <div class="company-jobs">
+                <span class="job-count">{{ company.activeJobCount }}</span>
+                <span class="job-label">open roles</span>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <mat-paginator
+        *ngIf="!bucketLoading() && bucketCompanies().length > bucketPageSize"
+        [length]="bucketCompanies().length"
+        [pageSize]="bucketPageSize"
+        [pageIndex]="bucketPage"
+        [pageSizeOptions]="[10, 25, 50]"
+        (page)="onBucketPage($event)">
+      </mat-paginator>
+    </ng-container>
   </div>
 </div>

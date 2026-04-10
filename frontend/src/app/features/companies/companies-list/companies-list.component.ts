@@ -40,6 +40,16 @@ export class CompaniesListComponent implements OnInit, OnDestroy {
   pageSize = 50;
 
   ngOnInit(): void {
+    const raw = localStorage.getItem('companiesState');
+    if (raw) {
+      localStorage.removeItem('companiesState');
+      const state = JSON.parse(raw);
+      this.searchQ           = state.searchQ ?? '';
+      this.selectedIndustries = new Set<string>(state.selectedIndustries ?? []);
+      this.page              = state.page ?? 1;
+      this.pageSize          = state.pageSize ?? 50;
+    }
+
     this.searchSub = this.searchSubject.pipe(
       debounceTime(300),
       distinctUntilChanged()
@@ -52,7 +62,15 @@ export class CompaniesListComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  ngOnDestroy(): void { this.searchSub.unsubscribe(); }
+  ngOnDestroy(): void {
+    this.searchSub.unsubscribe();
+    localStorage.setItem('companiesState', JSON.stringify({
+      searchQ: this.searchQ,
+      selectedIndustries: [...this.selectedIndustries],
+      page: this.page,
+      pageSize: this.pageSize,
+    }));
+  }
 
   onSearchInput(value: string): void {
     this.searchQ = value;

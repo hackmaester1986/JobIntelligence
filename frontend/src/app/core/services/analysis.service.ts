@@ -7,6 +7,22 @@ export interface DistributionBin {
   count: number;
 }
 
+export interface BucketCompany {
+  id: number;
+  canonicalName: string;
+  logoUrl?: string;
+  industry?: string;
+  activeJobCount: number;
+  employeeCountRange?: string;
+  headquartersCity?: string;
+  headquartersCountry?: string;
+}
+
+export interface BucketCompaniesResult {
+  bucket: string;
+  companies: BucketCompany[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class AnalysisService {
   private api = inject(ApiService);
@@ -20,5 +36,12 @@ export class AnalysisService {
     if (sizes.length > 0) params['sizes'] = sizes;
     if (isUs != null) params['isUs'] = isUs;
     return this.api.get<DistributionBin[]>('/analysis/distribution', params);
+  }
+
+  getBucketCompanies(metric: string, bucket: string, sizes: string[], isUs?: boolean): Observable<BucketCompaniesResult> {
+    const params: Record<string, string | boolean | string[] | undefined> = { metric, bucket };
+    if (sizes.length > 0) params['sizes'] = sizes;
+    if (isUs != null) params['isUs'] = isUs;
+    return this.api.get<BucketCompaniesResult>('/analysis/bucket-companies', params);
   }
 }
