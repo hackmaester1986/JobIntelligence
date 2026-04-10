@@ -38,6 +38,13 @@ phases:
       - echo Build complete
       - find publish -maxdepth 3 -type f | sort | head -100
 
+      - echo Building and pushing worker Docker image to ECR...
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - docker build -f backend/Dockerfile.worker -t $ECR_REGISTRY/jobintelligence-worker:latest -t $ECR_REGISTRY/jobintelligence-worker:$CODEBUILD_RESOLVED_SOURCE_VERSION backend/
+      - docker push $ECR_REGISTRY/jobintelligence-worker:latest
+      - docker push $ECR_REGISTRY/jobintelligence-worker:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - echo Worker image pushed successfully
+
 artifacts:
   base-directory: publish
   files:

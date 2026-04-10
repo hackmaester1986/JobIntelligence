@@ -1,0 +1,23 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+
+COPY JobIntelligence.sln .
+COPY JobIntelligence.Core/JobIntelligence.Core.csproj JobIntelligence.Core/
+COPY JobIntelligence.Infrastructure/JobIntelligence.Infrastructure.csproj JobIntelligence.Infrastructure/
+COPY JobIntelligence.Worker/JobIntelligence.Worker.csproj JobIntelligence.Worker/
+
+RUN dotnet restore JobIntelligence.Worker/JobIntelligence.Worker.csproj
+
+COPY JobIntelligence.Core/ JobIntelligence.Core/
+COPY JobIntelligence.Infrastructure/ JobIntelligence.Infrastructure/
+COPY JobIntelligence.Worker/ JobIntelligence.Worker/
+
+RUN dotnet publish JobIntelligence.Worker/JobIntelligence.Worker.csproj \
+    --configuration Release \
+    --output /app/publish
+
+FROM mcr.microsoft.com/dotnet/runtime:9.0
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENTRYPOINT ["dotnet", "JobIntelligence.Worker.dll"]
