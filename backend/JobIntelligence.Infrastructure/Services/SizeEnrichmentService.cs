@@ -1,9 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Anthropic;
-using Anthropic.Exceptions;
-using Anthropic.Models.Messages;
 using JobIntelligence.Core.Interfaces;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +11,6 @@ namespace JobIntelligence.Infrastructure.Services;
 
 public partial class SizeEnrichmentService(
     IHttpClientFactory httpClientFactory,
-    AnthropicClient anthropic,
     ApplicationDbContext db,
     IConfiguration configuration,
     ILogger<SizeEnrichmentService> logger) : ISizeEnrichmentService
@@ -40,7 +36,7 @@ public partial class SizeEnrichmentService(
         }
 
         var companies = await db.Companies
-            .Where(c => c.EmployeeCountRange == null && c.IsTechHiring != false)
+            .Where(c => c.SizeEnrichedAt == null && c.EmployeeCountRange == null && c.IsTechHiring != false)
             .OrderBy(c => c.Id)
             .Take(batchSize)
             .ToListAsync(ct);
@@ -60,23 +56,19 @@ public partial class SizeEnrichmentService(
                 if (IsSlugDerivedName(company.CanonicalName))
                 {
                     logger.LogDebug("Skipping slug-derived name {Name}", company.CanonicalName);
+                    company.SizeEnrichedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync(ct);
                     notFound++;
                     processed++;
                     continue;
                 }
 
-                // Step 1: search LinkedIn snippet via Brave
                 var range = await TryBraveSearchAsync(client, company.CanonicalName, braveApiKey, ct);
-
-                // Step 2: fall back to Haiku training knowledge
-                if (range == null)
-                    range = await TryHaikuFallbackAsync(company.CanonicalName, ct);
 
                 if (range != null)
                 {
                     company.EmployeeCountRange = range;
                     company.UpdatedAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync(ct);
                     enriched++;
                     logger.LogInformation("Size enriched {Name} → {Range}", company.CanonicalName, range);
                 }
@@ -86,6 +78,8 @@ public partial class SizeEnrichmentService(
                     logger.LogDebug("No size found for {Name}", company.CanonicalName);
                 }
 
+                company.SizeEnrichedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
                 processed++;
                 await Task.Delay(300, ct);
             }
@@ -93,16 +87,19 @@ public partial class SizeEnrichmentService(
             {
                 throw;
             }
-            catch (AnthropicRateLimitException ex)
-            {
-                logger.LogWarning(ex, "Rate limited on Haiku for {Name}", company.CanonicalName);
-                failed++;
-                break;
-            }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to enrich size for {Name}", company.CanonicalName);
                 failed++;
+                try
+                {
+                    company.SizeEnrichedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync(ct);
+                }
+                catch (Exception saveEx)
+                {
+                    logger.LogError(saveEx, "SaveChangesAsync failed for {Name}", company.CanonicalName);
+                }
             }
         }
 
@@ -116,9 +113,8 @@ public partial class SizeEnrichmentService(
     private async Task<string?> TryBraveSearchAsync(
         HttpClient client, string companyName, string apiKey, CancellationToken ct)
     {
-        // Search LinkedIn specifically — their snippets reliably contain employee count
-        var query = Uri.EscapeDataString($"{companyName} site:linkedin.com/company");
-        var url = $"https://api.search.brave.com/res/v1/web/search?q={query}&count=5";
+        var query = Uri.EscapeDataString($"\"{companyName}\" number of employees");
+        var url = $"https://api.search.brave.com/res/v1/web/search?q={query}&count=10";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("X-Subscription-Token", apiKey);
@@ -154,56 +150,24 @@ public partial class SizeEnrichmentService(
         return null;
     }
 
-    private async Task<string?> TryHaikuFallbackAsync(string companyName, CancellationToken ct)
-    {
-        var response = await anthropic.Messages.Create(new MessageCreateParams
-        {
-            Model = Model.ClaudeHaiku4_5_20251001,
-            MaxTokens = 100,
-            System = "You are a company research assistant. Respond ONLY with a JSON object. No explanation, no markdown.",
-            Messages =
-            [
-                new MessageParam
-                {
-                    Role = Role.User,
-                    Content = $$"""
-                        How many employees does "{{companyName}}" have?
-                        Return ONLY this JSON (use null if unknown):
-                        {"employee_count_range": "one of: 1-50, 50-200, 200-500, 500-1000, 1000-5000, 5000-10000, 10000+, or null"}
-                        """
-                }
-            ]
-        }, ct);
-
-        string? rawText = null;
-        foreach (var block in response.Content)
-            if (block.TryPickText(out TextBlock? tb) && tb != null)
-                rawText = tb.Text;
-
-        if (string.IsNullOrWhiteSpace(rawText)) return null;
-
-        var braceStart = rawText.IndexOf('{');
-        var braceEnd   = rawText.LastIndexOf('}');
-        if (braceStart < 0 || braceEnd <= braceStart) return null;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(rawText[braceStart..(braceEnd + 1)]);
-            if (doc.RootElement.TryGetProperty("employee_count_range", out var val)
-                && val.ValueKind == JsonValueKind.String)
-            {
-                var candidate = val.GetString();
-                return IsValidRange(candidate) ? candidate : null;
-            }
-        }
-        catch (JsonException) { }
-
-        return null;
-    }
-
-    // Parses "1,001-5,000 employees" / "10,001+ employees" / "51-200 employees" etc.
+// Parses employee count from snippet text in various formats:
+    //   "1,001-5,000 employees"  → average (3,000) → bucket
+    //   "10,001+ employees"      → lower bound → bucket
+    //   "5,234 employees"        → direct → bucket
+    //   "5.2K employees"         → 5200 → bucket
     private static string? ParseEmployeeRange(string text)
     {
+        // Range: "1,001-5,000 employees" or "51-200 employees"
+        var rangeMatch = EmployeeRangePattern().Match(text);
+        if (rangeMatch.Success)
+        {
+            var lower = ParseInt(rangeMatch.Groups[1].Value);
+            var upper = ParseInt(rangeMatch.Groups[2].Value);
+            var avg   = (lower + upper) / 2;
+            return MapToRange(avg);
+        }
+
+        // Plus: "10,001+ employees"
         var plusMatch = EmployeePlusPattern().Match(text);
         if (plusMatch.Success)
         {
@@ -211,20 +175,30 @@ public partial class SizeEnrichmentService(
             return MapToRange(lower);
         }
 
-        var rangeMatch = EmployeeRangePattern().Match(text);
-        if (rangeMatch.Success)
+        // K/M suffix: "5.2K employees" / "1.3M employees"
+        var kmMatch = EmployeeKMPattern().Match(text);
+        if (kmMatch.Success)
         {
-            var lower = ParseInt(rangeMatch.Groups[1].Value);
-            return MapToRange(lower);
+            var num        = double.Parse(kmMatch.Groups[1].Value);
+            var multiplier = kmMatch.Groups[2].Value.ToUpperInvariant() == "M" ? 1_000_000 : 1_000;
+            return MapToRange((int)(num * multiplier));
+        }
+
+        // Single number: "5,234 employees"
+        var singleMatch = EmployeeSinglePattern().Match(text);
+        if (singleMatch.Success)
+        {
+            var n = ParseInt(singleMatch.Groups[1].Value);
+            if (n > 0) return MapToRange(n);
         }
 
         return null;
     }
 
-    private static string? MapToRange(int lower)
+    private static string? MapToRange(int n)
     {
         foreach (var (maxLower, range) in RangeMap)
-            if (lower <= maxLower) return range;
+            if (n <= maxLower) return range;
         return "10000+";
     }
 
@@ -251,11 +225,17 @@ public partial class SizeEnrichmentService(
     private static bool IsValidRange(string? s) =>
         s is "1-50" or "50-200" or "200-500" or "500-1000" or "1000-5000" or "5000-10000" or "10000+";
 
+    [GeneratedRegex(@"([\d,]+)\s*[-–]\s*([\d,]+)\s*employees", RegexOptions.IgnoreCase)]
+    private static partial Regex EmployeeRangePattern();
+
     [GeneratedRegex(@"([\d,]+)\+\s*employees", RegexOptions.IgnoreCase)]
     private static partial Regex EmployeePlusPattern();
 
-    [GeneratedRegex(@"([\d,]+)\s*[-–]\s*[\d,]+\s*employees", RegexOptions.IgnoreCase)]
-    private static partial Regex EmployeeRangePattern();
+    [GeneratedRegex(@"(\d+(?:\.\d+)?)\s*([KkMm])\s*employees", RegexOptions.IgnoreCase)]
+    private static partial Regex EmployeeKMPattern();
+
+    [GeneratedRegex(@"([\d,]+)\s*employees", RegexOptions.IgnoreCase)]
+    private static partial Regex EmployeeSinglePattern();
 
     private record BraveSearchResponse(
         [property: JsonPropertyName("web")] BraveWebResults? Web);

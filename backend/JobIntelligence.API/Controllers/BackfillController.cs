@@ -789,6 +789,48 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         return Accepted(new { message = $"Size enrichment started for batch of {batchSize}" });
     }
 
+    [HttpPost("salary-parse")]
+    public IActionResult BackfillSalaryParse([FromQuery] int batchSize = 5000)
+    {
+        logger.LogInformation("Salary parse backfill triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var postings = await db.JobPostings
+                .Where(p => !p.SalaryDisclosed && (p.DescriptionHtml != null || p.Description != null))
+                .Select(p => new { p.Id, p.DescriptionHtml, p.Description })
+                .Take(batchSize)
+                .ToListAsync();
+
+            logger.LogInformation("Salary parse backfill: {Count} postings to process", postings.Count);
+
+            int updated = 0;
+            foreach (var p in postings)
+            {
+                var salary = Parse(p.DescriptionHtml ?? p.Description);
+                if (!salary.Disclosed) continue;
+
+                await db.JobPostings
+                    .Where(j => j.Id == p.Id)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(j => j.SalaryMin, salary.Min)
+                        .SetProperty(j => j.SalaryMax, salary.Max)
+                        .SetProperty(j => j.SalaryCurrency, salary.Currency)
+                        .SetProperty(j => j.SalaryPeriod, salary.Period)
+                        .SetProperty(j => j.SalaryDisclosed, true)
+                        .SetProperty(j => j.UpdatedAt, DateTime.UtcNow));
+                updated++;
+            }
+
+            logger.LogInformation("Salary parse backfill complete: {Updated}/{Total} postings updated", updated, postings.Count);
+        });
+
+        return Accepted(new { message = $"Salary parse backfill started for batch of {batchSize}" });
+    }
+
     [HttpPost("import-greenhouse-urls")]
     public async Task<IActionResult> ImportGreenhouseUrls(
         [FromBody] List<string> urls,

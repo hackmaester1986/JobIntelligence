@@ -27,6 +27,7 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
         [FromQuery] string[]? industries,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery] bool? isUs = null,
         CancellationToken ct = default)
     {
         var query = db.Companies.Where(c => c.IsTechHiring != false).AsQueryable();
@@ -39,43 +40,84 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
 
         var total = await query.CountAsync(ct);
 
-        var companies = await query
+        var page_query = query
             .OrderByDescending(c => c.ActiveJobCount)
             .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(c => new
-            {
-                c.Id,
-                c.CanonicalName,
-                c.Industry,
-                c.EmployeeCountRange,
-                c.HeadquartersCity,
-                c.HeadquartersCountry,
-                c.LogoUrl,
-                c.ActiveJobCount,
-                c.RemovedJobCount,
-                c.RemoteJobCount,
-                c.TotalJobsEverSeen,
-                c.DuplicateJobCount,
-                c.AvgJobLifetimeDays,
-                c.AvgRepostCount,
-                c.SalaryDisclosureRate,
-                c.StatsComputedAt
-            })
-            .ToListAsync(ct);
+            .Take(pageSize);
 
-        return Ok(new { total, page, pageSize, data = companies });
+        if (isUs == true)
+        {
+            var companies = await page_query
+                .GroupJoin(
+                    db.JobPostings.Where(j => j.IsActive && (j.IsUsPosting == true || j.IsUsPosting == null)),
+                    c => c.Id,
+                    j => j.CompanyId,
+                    (c, jobs) => new
+                    {
+                        c.Id,
+                        c.CanonicalName,
+                        c.Industry,
+                        c.EmployeeCountRange,
+                        c.HeadquartersCity,
+                        c.HeadquartersCountry,
+                        c.LogoUrl,
+                        c.ActiveJobCount,
+                        UsJobCount = (int?)jobs.Count(),
+                        c.RemovedJobCount,
+                        c.RemoteJobCount,
+                        c.TotalJobsEverSeen,
+                        c.DuplicateJobCount,
+                        c.AvgJobLifetimeDays,
+                        c.AvgRepostCount,
+                        c.SalaryDisclosureRate,
+                        c.StatsComputedAt
+                    })
+                .ToListAsync(ct);
+
+            return Ok(new { total, page, pageSize, data = companies });
+        }
+        else
+        {
+            var companies = await page_query
+                .Select(c => new
+                {
+                    c.Id,
+                    c.CanonicalName,
+                    c.Industry,
+                    c.EmployeeCountRange,
+                    c.HeadquartersCity,
+                    c.HeadquartersCountry,
+                    c.LogoUrl,
+                    c.ActiveJobCount,
+                    UsJobCount = (int?)null,
+                    c.RemovedJobCount,
+                    c.RemoteJobCount,
+                    c.TotalJobsEverSeen,
+                    c.DuplicateJobCount,
+                    c.AvgJobLifetimeDays,
+                    c.AvgRepostCount,
+                    c.SalaryDisclosureRate,
+                    c.StatsComputedAt
+                })
+                .ToListAsync(ct);
+
+            return Ok(new { total, page, pageSize, data = companies });
+        }
     }
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> GetCompany(long id, CancellationToken ct)
+    public async Task<IActionResult> GetCompany(long id, [FromQuery] bool? isUs = null, CancellationToken ct = default)
     {
         var company = await db.Companies
             .Where(c => c.Id == id)
             .Select(c => new {
                 c.Id, c.CanonicalName, c.Industry, c.EmployeeCountRange,
                 c.HeadquartersCity, c.HeadquartersCountry, c.LogoUrl,
-                c.ActiveJobCount, c.RemovedJobCount, c.RemoteJobCount, c.TotalJobsEverSeen,
+                c.ActiveJobCount,
+                UsJobCount = isUs == true
+                    ? db.JobPostings.Count(j => j.CompanyId == c.Id && j.IsActive && (j.IsUsPosting == true || j.IsUsPosting == null))
+                    : (int?)null,
+                c.RemovedJobCount, c.RemoteJobCount, c.TotalJobsEverSeen,
                 c.DuplicateJobCount, c.AvgJobLifetimeDays, c.AvgRepostCount,
                 c.SalaryDisclosureRate, c.StatsComputedAt
             })

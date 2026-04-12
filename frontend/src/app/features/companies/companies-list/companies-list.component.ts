@@ -9,10 +9,12 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { Subject, Subscription } from 'rxjs';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { debounceTime, distinctUntilChanged, skip } from 'rxjs/operators';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { Company } from '../../../core/models/company.model';
 import { CompaniesService } from '../../../core/services/companies.service';
 import { PagedResult } from '../../../core/services/jobs.service';
+import { LocationFilterService } from '../../../core/services/location-filter.service';
 
 @Component({
   selector: 'app-companies-list',
@@ -28,8 +30,10 @@ import { PagedResult } from '../../../core/services/jobs.service';
 })
 export class CompaniesListComponent implements OnInit, OnDestroy {
   private companiesService = inject(CompaniesService);
+  locationFilter = inject(LocationFilterService);
   private searchSubject = new Subject<string>();
   private searchSub!: Subscription;
+  private locationSub!: Subscription;
 
   result        = signal<PagedResult<Company> | null>(null);
   loading       = signal(true);
@@ -38,6 +42,13 @@ export class CompaniesListComponent implements OnInit, OnDestroy {
   searchQ = '';
   page    = 1;
   pageSize = 50;
+
+  constructor() {
+    this.locationSub = toObservable(this.locationFilter.usOnly).pipe(skip(1)).subscribe(() => {
+      this.page = 1;
+      this.load();
+    });
+  }
 
   ngOnInit(): void {
     const raw = localStorage.getItem('companiesState');
@@ -64,6 +75,7 @@ export class CompaniesListComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.searchSub.unsubscribe();
+    this.locationSub?.unsubscribe();
     localStorage.setItem('companiesState', JSON.stringify({
       searchQ: this.searchQ,
       selectedIndustries: [...this.selectedIndustries],
@@ -94,7 +106,8 @@ export class CompaniesListComponent implements OnInit, OnDestroy {
   load(): void {
     this.loading.set(true);
     const industries = this.selectedIndustries.size > 0 ? [...this.selectedIndustries] : undefined;
-    this.companiesService.getCompanies(this.searchQ || undefined, this.page, this.pageSize, industries).subscribe({
+    const isUs = this.locationFilter.usOnly() ? true : undefined;
+    this.companiesService.getCompanies(this.searchQ || undefined, this.page, this.pageSize, industries, isUs).subscribe({
       next: r => { this.result.set(r); this.loading.set(false); },
       error: () => this.loading.set(false)
     });

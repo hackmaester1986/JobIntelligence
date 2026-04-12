@@ -35,6 +35,7 @@
                   <span *ngIf="c.headquartersCity"> · {{ c.headquartersCity }}</span>
                 </p>
                 <span class="jobs-badge">{{ c.activeJobCount }} open jobs</span>
+                <span class="jobs-badge us-badge" *ngIf="c.usJobCount != null">{{ c.usJobCount }} in US</span>
               </div>
             </div>
           </mat-card-content>

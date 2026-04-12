@@ -7,6 +7,7 @@ export interface Company {
   headquartersCountry?: string;
   logoUrl?: string;
   activeJobCount: number;
+  usJobCount?: number;
   removedJobCount: number;
   remoteJobCount: number;
   totalJobsEverSeen: number;

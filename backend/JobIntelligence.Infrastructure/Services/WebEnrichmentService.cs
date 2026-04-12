@@ -111,7 +111,7 @@ public class WebEnrichmentService(
                 await db.SaveChangesAsync(ct);
                 processed++;
 
-                await Task.Delay(500, ct);
+                await Task.Delay(200, ct);
             }
             catch (OperationCanceledException)
             {

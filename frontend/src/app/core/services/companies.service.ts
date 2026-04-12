@@ -13,12 +13,12 @@ export class CompaniesService {
     return this.api.get<string[]>('/companies/industries');
   }
 
-  getCompanies(q?: string, page = 1, pageSize = 50, industries?: string[]): Observable<PagedResult<Company>> {
-    return this.api.get<PagedResult<Company>>('/companies', { q, page, pageSize, industries });
+  getCompanies(q?: string, page = 1, pageSize = 50, industries?: string[], isUs?: boolean): Observable<PagedResult<Company>> {
+    return this.api.get<PagedResult<Company>>('/companies', { q, page, pageSize, industries, isUs });
   }
 
-  getCompany(id: number): Observable<Company> {
-    return this.api.get<Company>(`/companies/${id}`);
+  getCompany(id: number, isUs?: boolean): Observable<Company> {
+    return this.api.get<Company>(`/companies/${id}`, isUs != null ? { isUs } : undefined);
   }
 
   getCompanyJobs(id: number, isUs?: boolean): Observable<Job[]> {

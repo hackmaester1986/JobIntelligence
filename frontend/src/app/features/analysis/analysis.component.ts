@@ -167,7 +167,7 @@ export class AnalysisComponent implements OnInit, OnDestroy {
   }
 
   goToCompany(id: number): void {
-    this.router.navigate(['/companies', id]);
+    this.router.navigate(['/companies', id], { state: { fromAnalysis: true } });
   }
 
   onBucketPage(e: PageEvent): void {

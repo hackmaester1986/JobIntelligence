@@ -16,7 +16,7 @@
     </mat-card-header>
     <mat-card-actions>
       <a mat-raised-button color="primary" [routerLink]="['/companies', c.id, 'jobs']">
-        Open Positions ({{ c.activeJobCount }})
+        Open Positions ({{ c.usJobCount != null ? c.usJobCount : c.activeJobCount }})
       </a>
     </mat-card-actions>
   </mat-card>

@@ -24,6 +24,7 @@ public class Company
     public DateTime? WikidataEnrichedAt { get; set; }
     public DateTime? DescriptionEnrichedAt { get; set; }
     public DateTime? WebEnrichedAt { get; set; }
+    public DateTime? SizeEnrichedAt { get; set; }
     public int? FoundingYear { get; set; }
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
