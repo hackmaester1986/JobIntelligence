@@ -15,6 +15,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<MlPrediction> MlPredictions => Set<MlPrediction>();
     public DbSet<CompanyJobSnapshot> CompanyJobSnapshots => Set<CompanyJobSnapshot>();
     public DbSet<DashboardSnapshot> DashboardSnapshots => Set<DashboardSnapshot>();
+    public DbSet<PageVisit> PageVisits => Set<PageVisit>();
+    public DbSet<ChatLog> ChatLogs => Set<ChatLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -220,6 +220,7 @@ public class SmartRecruitersCollector(
             EmploymentType = employmentType,
             DescriptionHtml = descriptionHtml,
             Description = description,
+            IsRemoteInDescription = LocationParser.HasRemoteInDescription(description),
             DescriptionHash = descriptionHash,
             ApplyUrl = applyUrl,
             ApplyUrlDomain = "jobs.smartrecruiters.com",

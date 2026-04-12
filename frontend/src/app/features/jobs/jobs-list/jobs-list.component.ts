@@ -7,15 +7,12 @@ import { MatCardModule } from '@angular/material/card';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { Subject, Subscription } from 'rxjs';
 import { debounceTime, skip, switchMap } from 'rxjs/operators';
 import { Job, JobFilters } from '../../../core/models/job.model';
 import { JobsService, PagedResult } from '../../../core/services/jobs.service';
-import { CompaniesService } from '../../../core/services/companies.service';
 import { LocationFilterService } from '../../../core/services/location-filter.service';
 
 @Component({
@@ -24,15 +21,14 @@ import { LocationFilterService } from '../../../core/services/location-filter.se
   imports: [
     RouterLink, FormsModule, NgFor, NgIf, DecimalPipe,
     MatCardModule, MatInputModule, MatButtonModule,
-    MatFormFieldModule, MatChipsModule, MatProgressSpinnerModule,
-    MatPaginatorModule, MatCheckboxModule
+    MatFormFieldModule, MatProgressSpinnerModule,
+    MatPaginatorModule
   ],
   templateUrl: './jobs-list.component.html',
   styleUrl: './jobs-list.component.scss'
 })
 export class JobsListComponent implements OnInit, OnDestroy {
   private jobsService = inject(JobsService);
-  private companiesService = inject(CompaniesService);
   private locationFilter = inject(LocationFilterService);
   private searchSubject = new Subject<void>();
   private loadSubject = new Subject<void>();
@@ -42,8 +38,6 @@ export class JobsListComponent implements OnInit, OnDestroy {
 
   result = signal<PagedResult<Job> | null>(null);
   loading = signal(true);
-  industries = signal<string[]>([]);
-  selectedIndustries = new Set<string>();
 
   filters: JobFilters = { page: 1, pageSize: 20 };
   titleQ = '';
@@ -61,10 +55,9 @@ export class JobsListComponent implements OnInit, OnDestroy {
     if (raw) {
       localStorage.removeItem('jobsState');
       const state = JSON.parse(raw);
-      this.titleQ             = state.titleQ ?? '';
-      this.skillQ             = state.skillQ ?? '';
-      this.selectedIndustries = new Set<string>(state.selectedIndustries ?? []);
-      this.filters            = state.filters ?? this.filters;
+      this.titleQ  = state.titleQ ?? '';
+      this.skillQ  = state.skillQ ?? '';
+      this.filters = state.filters ?? this.filters;
     }
 
     this.searchSub = this.searchSubject.pipe(
@@ -77,12 +70,10 @@ export class JobsListComponent implements OnInit, OnDestroy {
     this.loadSub = this.loadSubject.pipe(
       switchMap(() => {
         this.loading.set(true);
-        const industries = this.selectedIndustries.size > 0 ? [...this.selectedIndustries] : undefined;
         return this.jobsService.getJobs({
           ...this.filters,
           q: this.titleQ || undefined,
           skill: this.skillQ || undefined,
-          industries,
           isUs: this.locationFilter.usOnly() ? true : undefined
         });
       })
@@ -91,7 +82,6 @@ export class JobsListComponent implements OnInit, OnDestroy {
       error: () => this.loading.set(false)
     });
 
-    this.companiesService.getIndustries().subscribe(list => this.industries.set(list));
     this.loadSubject.next();
   }
 
@@ -102,26 +92,11 @@ export class JobsListComponent implements OnInit, OnDestroy {
     localStorage.setItem('jobsState', JSON.stringify({
       titleQ: this.titleQ,
       skillQ: this.skillQ,
-      selectedIndustries: [...this.selectedIndustries],
       filters: this.filters,
     }));
   }
 
   onSearchInput(): void { this.searchSubject.next(); }
-
-  toggleIndustry(industry: string): void {
-    if (this.selectedIndustries.has(industry)) {
-      this.selectedIndustries.delete(industry);
-    } else {
-      this.selectedIndustries.add(industry);
-    }
-    this.filters = { ...this.filters, page: 1 };
-    this.loadSubject.next();
-  }
-
-  isSelected(industry: string): boolean {
-    return this.selectedIndustries.has(industry);
-  }
 
   onPage(e: PageEvent): void {
     this.filters = { ...this.filters, page: e.pageIndex + 1, pageSize: e.pageSize };

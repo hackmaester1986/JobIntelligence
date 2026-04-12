@@ -157,6 +157,7 @@ public class AshbyCollector(
             EmploymentType = employmentType,
             DescriptionHtml = job.DescriptionHtml,
             Description = StripHtml(job.DescriptionHtml),
+            IsRemoteInDescription = LocationParser.HasRemoteInDescription(StripHtml(job.DescriptionHtml)),
             DescriptionHash = Compute(StripHtml(job.DescriptionHtml)),
             ApplyUrl = job.ApplyUrl,
             ApplyUrlDomain = ExtractDomain(job.ApplyUrl),
@@ -194,6 +195,7 @@ public class AshbyCollector(
         existing.EmploymentType = incoming.EmploymentType;
         existing.DescriptionHtml = incoming.DescriptionHtml;
         existing.Description = incoming.Description;
+        existing.IsRemoteInDescription = incoming.IsRemoteInDescription;
         existing.DescriptionHash = incoming.DescriptionHash;
         existing.ApplyUrl = incoming.ApplyUrl;
         existing.ApplyUrlDomain = incoming.ApplyUrlDomain;

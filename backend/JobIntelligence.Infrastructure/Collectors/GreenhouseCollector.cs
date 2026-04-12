@@ -163,6 +163,7 @@ public class GreenhouseCollector(
             SalaryDisclosed = salary.Disclosed,
             DescriptionHtml = descriptionHtml,
             Description = description,
+            IsRemoteInDescription = LocationParser.HasRemoteInDescription(description),
             DescriptionHash = Compute(description),
             ApplyUrl = job.AbsoluteUrl,
             ApplyUrlDomain = ExtractDomain(job.AbsoluteUrl),
@@ -200,6 +201,7 @@ public class GreenhouseCollector(
         existing.ApplyUrlDomain = incoming.ApplyUrlDomain;
         existing.DescriptionHtml = incoming.DescriptionHtml;
         existing.Description = incoming.Description;
+        existing.IsRemoteInDescription = incoming.IsRemoteInDescription;
         existing.DescriptionHash = incoming.DescriptionHash;
         existing.UpdatedAt = DateTime.UtcNow;
     }

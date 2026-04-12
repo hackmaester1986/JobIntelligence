@@ -80,6 +80,7 @@ public class JobsController(ApplicationDbContext db, IMemoryCache cache) : Contr
                 j.LocationRaw,
                 j.IsRemote,
                 j.IsHybrid,
+                j.IsRemoteInDescription,
                 j.SalaryMin,
                 j.SalaryMax,
                 j.SalaryCurrency,

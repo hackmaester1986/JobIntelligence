@@ -23,6 +23,7 @@ public class JobPosting
     public string? LocationCountry { get; set; }
     public bool IsRemote { get; set; }
     public bool IsHybrid { get; set; }
+    public bool IsRemoteInDescription { get; set; }
     public bool? IsUsPosting { get; set; }
 
     // Compensation

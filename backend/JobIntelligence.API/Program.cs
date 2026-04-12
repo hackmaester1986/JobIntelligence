@@ -34,7 +34,9 @@ builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("chat-per-ip", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 Window = TimeSpan.FromHours(24),
@@ -70,6 +72,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseRateLimiter();
+app.UseMiddleware<JobIntelligence.API.Middleware.RequestLoggingMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapControllers();

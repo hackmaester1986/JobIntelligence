@@ -16,6 +16,16 @@ public static class LocationParser
         "OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"
     };
 
+    private static readonly string[] DescriptionRemoteKeywords =
+        ["remote", "work from home", "wfh", "fully remote", "100% remote", "remote-first", "remote first"];
+
+    public static bool HasRemoteInDescription(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return false;
+        var lower = description.ToLowerInvariant();
+        return DescriptionRemoteKeywords.Any(k => lower.Contains(k));
+    }
+
     public record ParsedLocation(
         string? City, string? State, string? Country, bool IsRemote, bool IsHybrid);
 

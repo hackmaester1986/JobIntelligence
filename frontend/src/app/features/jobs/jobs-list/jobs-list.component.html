@@ -10,18 +10,6 @@
 </div>
 
 <div class="layout">
-  <aside class="filters-panel">
-    <p class="filter-heading">Industry</p>
-    <div class="industry-list">
-      <mat-checkbox
-        *ngFor="let ind of industries()"
-        [checked]="isSelected(ind)"
-        (change)="toggleIndustry(ind)">
-        {{ ind }}
-      </mat-checkbox>
-    </div>
-  </aside>
-
   <div class="main-content">
     <p class="total" *ngIf="result() as r">{{ r.total | number }} jobs found</p>
 
@@ -45,6 +33,7 @@
               <div class="chips">
                 <span *ngIf="job.isRemote" class="chip remote">Remote</span>
                 <span *ngIf="job.isHybrid" class="chip hybrid">Hybrid</span>
+                <span *ngIf="!job.isRemote && job.isRemoteInDescription" class="chip possibly-remote">Possibly Remote</span>
                 <span *ngIf="job.source?.name" class="chip source">{{ job.source?.name }}</span>
               </div>
             </div>

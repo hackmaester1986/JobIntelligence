@@ -243,6 +243,7 @@ public class WorkdayCollector(
             EmploymentType = employmentType,
             DescriptionHtml = descriptionHtml,
             Description = description,
+            IsRemoteInDescription = LocationParser.HasRemoteInDescription(description),
             DescriptionHash = descriptionHash,
             PostedAt = ParsePostedOn(job.PostedOn),
             ApplyUrl = applyUrl,

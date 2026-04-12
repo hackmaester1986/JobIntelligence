@@ -789,6 +789,126 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         return Accepted(new { message = $"Size enrichment started for batch of {batchSize}" });
     }
 
+    [HttpPost("import-greenhouse-urls")]
+    public async Task<IActionResult> ImportGreenhouseUrls(
+        [FromBody] List<string> urls,
+        [FromQuery] bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        if (urls is not { Count: > 0 })
+            return BadRequest(new { error = "No URLs provided" });
+
+        var slugs = new List<string>();
+        var unparseable = new List<string>();
+
+        foreach (var raw in urls)
+        {
+            var url = raw.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (!uri.Host.Equals("boards.greenhouse.io", StringComparison.OrdinalIgnoreCase) &&
+                 !uri.Host.Equals("job-boards.greenhouse.io", StringComparison.OrdinalIgnoreCase)))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            var slug = uri.AbsolutePath
+                .Trim('/')
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault();
+
+            if (string.IsNullOrEmpty(slug))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            if (!slugs.Contains(slug, StringComparer.OrdinalIgnoreCase))
+                slugs.Add(slug);
+        }
+
+        logger.LogInformation(
+            "import-greenhouse-urls: parsed {Valid} slugs, {Bad} unparseable (dryRun={DryRun})",
+            slugs.Count, unparseable.Count, dryRun);
+
+        using var scope = scopeFactory.CreateScope();
+        var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
+
+        var result = await discovery.DiscoverFromSlugsAsync(
+            slugs, [], [], [], [], dryRun, ct);
+
+        return Ok(new
+        {
+            parsed = slugs.Count,
+            unparseable,
+            validated = result.ValidatedPerSource.GetValueOrDefault("Greenhouse"),
+            skipped = result.Skipped,
+            failed = result.Failed,
+            dryRun,
+            added = dryRun ? (object)"(dry run — nothing imported)" : result.AddedCompanies
+        });
+    }
+
+    [HttpPost("import-smartrecruiters-urls")]
+    public async Task<IActionResult> ImportSmartRecruitersUrls(
+        [FromBody] List<string> urls,
+        [FromQuery] bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        if (urls is not { Count: > 0 })
+            return BadRequest(new { error = "No URLs provided" });
+
+        var slugs = new List<string>();
+        var unparseable = new List<string>();
+
+        foreach (var raw in urls)
+        {
+            var url = raw.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (!uri.Host.Equals("jobs.smartrecruiters.com", StringComparison.OrdinalIgnoreCase) &&
+                 !uri.Host.Equals("careers.smartrecruiters.com", StringComparison.OrdinalIgnoreCase)))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            var slug = uri.AbsolutePath
+                .Trim('/')
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault();
+
+            if (string.IsNullOrEmpty(slug))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            if (!slugs.Contains(slug, StringComparer.OrdinalIgnoreCase))
+                slugs.Add(slug);
+        }
+
+        logger.LogInformation(
+            "import-smartrecruiters-urls: parsed {Valid} slugs, {Bad} unparseable (dryRun={DryRun})",
+            slugs.Count, unparseable.Count, dryRun);
+
+        using var scope = scopeFactory.CreateScope();
+        var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
+
+        var result = await discovery.DiscoverFromSlugsAsync(
+            [], [], [], slugs, [], dryRun, ct);
+
+        return Ok(new
+        {
+            parsed = slugs.Count,
+            unparseable,
+            validated = result.ValidatedPerSource.GetValueOrDefault("SmartRecruiters"),
+            skipped = result.Skipped,
+            failed = result.Failed,
+            dryRun,
+            added = dryRun ? (object)"(dry run — nothing imported)" : result.AddedCompanies
+        });
+    }
+
     [HttpPost("import-workday-urls")]
     public async Task<IActionResult> ImportWorkdayUrls(
         [FromBody] List<string> urls,

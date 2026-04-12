@@ -170,6 +170,7 @@ public class LeverCollector(
             EmploymentType = employmentType,
             DescriptionHtml = descriptionHtml,
             Description = StripHtml(descriptionHtml),
+            IsRemoteInDescription = LocationParser.HasRemoteInDescription(StripHtml(descriptionHtml)),
             DescriptionHash = Compute(StripHtml(descriptionHtml)),
             ApplyUrl = posting.ApplyUrl,
             ApplyUrlDomain = ExtractDomain(posting.ApplyUrl),
@@ -204,6 +205,7 @@ public class LeverCollector(
         existing.EmploymentType = incoming.EmploymentType;
         existing.DescriptionHtml = incoming.DescriptionHtml;
         existing.Description = incoming.Description;
+        existing.IsRemoteInDescription = incoming.IsRemoteInDescription;
         existing.DescriptionHash = incoming.DescriptionHash;
         existing.ApplyUrl = incoming.ApplyUrl;
         existing.ApplyUrlDomain = incoming.ApplyUrlDomain;
