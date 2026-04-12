@@ -79,7 +79,7 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
             Content = m.Content
         }).ToList();
 
-        const string system = "You are a job market analyst for JobIntelligence. Use tools to answer questions about job trends, top companies, required skills, and salary data. Be concise and data-driven.";
+        const string system = "You are a job market analyst for JobIntelligence. Use tools to answer questions about job trends, top companies, required skills, and salary data. Be concise and data-driven. Never use markdown tables — present data as plain numbered lists or prose instead.";
 
         while (true)
         {
