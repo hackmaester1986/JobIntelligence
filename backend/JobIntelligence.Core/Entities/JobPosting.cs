@@ -26,6 +26,12 @@ public class JobPosting
     public bool IsRemoteInDescription { get; set; }
     public bool? IsUsPosting { get; set; }
 
+    // Requirements
+    public int? YearsExperienceMin { get; set; }
+    public int? YearsExperienceMax { get; set; }
+    public string? EducationLevel { get; set; }   // bachelor, master, phd
+    public bool? RequiresUsAuthorization { get; set; }
+
     // Compensation
     public decimal? SalaryMin { get; set; }
     public decimal? SalaryMax { get; set; }
@@ -68,4 +74,5 @@ public class JobPosting
     public ICollection<JobSkill> Skills { get; set; } = new List<JobSkill>();
     public ICollection<JobSnapshot> Snapshots { get; set; } = new List<JobSnapshot>();
     public ICollection<MlPrediction> MlPredictions { get; set; } = new List<MlPrediction>();
+    public JobEmbedding? Embedding { get; set; }
 }

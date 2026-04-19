@@ -4,6 +4,7 @@ using System.Text.Json;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace JobIntelligence.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260413205146_AddJobEmbeddings")]
+    partial class AddJobEmbeddings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -52,7 +55,7 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ChatLogs", (string)null);
+                    b.ToTable("ChatLogs");
                 });
 
             modelBuilder.Entity("JobIntelligence.Core.Entities.CollectionRun", b =>
@@ -927,98 +930,7 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PageVisits", (string)null);
-                });
-
-            modelBuilder.Entity("JobIntelligence.Core.Entities.Resume", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("NOW()");
-
-                    b.Property<string>("EducationField")
-                        .HasColumnType("text")
-                        .HasColumnName("education_field");
-
-                    b.Property<string>("EducationLevel")
-                        .HasColumnType("text")
-                        .HasColumnName("education_level");
-
-                    b.Property<string>("Email")
-                        .HasColumnType("text")
-                        .HasColumnName("email");
-
-                    b.PrimitiveCollection<string[]>("Industries")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("industries");
-
-                    b.Property<string>("Location")
-                        .HasColumnType("text")
-                        .HasColumnName("location");
-
-                    b.Property<string>("Name")
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
-                    b.Property<string>("RawText")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("raw_text");
-
-                    b.PrimitiveCollection<string[]>("RecentJobTitles")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("recent_job_titles");
-
-                    b.PrimitiveCollection<string[]>("Skills")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("skills");
-
-                    b.Property<int?>("YearsOfExperience")
-                        .HasColumnType("integer")
-                        .HasColumnName("years_of_experience");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("resumes", (string)null);
-                });
-
-            modelBuilder.Entity("JobIntelligence.Core.Entities.ResumeEmbedding", b =>
-                {
-                    b.Property<long>("ResumeId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("resume_id");
-
-                    b.Property<DateTime>("EmbeddedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("embedded_at")
-                        .HasDefaultValueSql("NOW()");
-
-                    b.Property<Vector>("Embedding")
-                        .IsRequired()
-                        .HasColumnType("vector(1536)")
-                        .HasColumnName("embedding");
-
-                    b.Property<string>("EmbeddingText")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("embedding_text");
-
-                    b.HasKey("ResumeId");
-
-                    b.ToTable("resume_embeddings", (string)null);
+                    b.ToTable("PageVisits");
                 });
 
             modelBuilder.Entity("JobIntelligence.Core.Entities.SkillTaxonomy", b =>
@@ -1167,17 +1079,6 @@ namespace JobIntelligence.Infrastructure.Migrations
                     b.Navigation("JobPosting");
                 });
 
-            modelBuilder.Entity("JobIntelligence.Core.Entities.ResumeEmbedding", b =>
-                {
-                    b.HasOne("JobIntelligence.Core.Entities.Resume", "Resume")
-                        .WithOne("Embedding")
-                        .HasForeignKey("JobIntelligence.Core.Entities.ResumeEmbedding", "ResumeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Resume");
-                });
-
             modelBuilder.Entity("JobIntelligence.Core.Entities.SkillTaxonomy", b =>
                 {
                     b.HasOne("JobIntelligence.Core.Entities.SkillTaxonomy", "ParentSkill")
@@ -1208,11 +1109,6 @@ namespace JobIntelligence.Infrastructure.Migrations
                     b.Navigation("CollectionRuns");
 
                     b.Navigation("JobPostings");
-                });
-
-            modelBuilder.Entity("JobIntelligence.Core.Entities.Resume", b =>
-                {
-                    b.Navigation("Embedding");
                 });
 
             modelBuilder.Entity("JobIntelligence.Core.Entities.SkillTaxonomy", b =>

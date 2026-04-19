@@ -30,7 +30,7 @@ public class CommonCrawlService(
         if (source != null && !SourceDomains.ContainsKey(source))
             throw new ArgumentException($"Unknown source '{source}'. Valid values: {string.Join(", ", SourceDomains.Keys)}");
 
-        var indexes = await GetRecentIndexesAsync(4, ct);
+        var indexes = await GetRecentIndexesAsync(1, ct);
         logger.LogInformation("Using Common Crawl indexes: {Indexes}", string.Join(", ", indexes));
 
         var leverSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

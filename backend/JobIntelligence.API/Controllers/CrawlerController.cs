@@ -12,6 +12,16 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
 {
     private static readonly string[] ValidSources = ["greenhouse", "lever", "ashby", "smartrecruiters", "workday"];
 
+    public record SlugDiscoveryRequest(
+        List<string>? AshbyUrls,
+        List<string>? AshbySlugs,
+        List<string>? GreenhouseUrls,
+        List<string>? GreenhouseSlugs,
+        List<string>? LeverUrls,
+        List<string>? LeverSlugs,
+        List<string>? SmartRecruitersUrls,
+        List<string>? SmartRecruitersSlugs);
+
     [HttpPost("common-crawl")]
     public IActionResult DiscoverViaCommonCrawl([FromQuery] string? source, [FromQuery] bool dryRun = false)
     {
@@ -59,6 +69,64 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         });
 
         return Accepted(new { message = $"Common Crawl discovery started for {label}", dryRun });
+    }
+
+    [HttpPost("slugs")]
+    public IActionResult DiscoverFromSlugs([FromBody] SlugDiscoveryRequest request, [FromQuery] bool dryRun = false)
+    {
+        var ashby   = ParseSlugs(request.AshbyUrls,   request.AshbySlugs);
+        var gh      = ParseSlugs(request.GreenhouseUrls, request.GreenhouseSlugs);
+        var lever   = ParseSlugs(request.LeverUrls,   request.LeverSlugs);
+        var sr      = ParseSlugs(request.SmartRecruitersUrls, request.SmartRecruitersSlugs);
+
+        var total = ashby.Count + gh.Count + lever.Count + sr.Count;
+        if (total == 0)
+            return BadRequest(new { error = "No slugs or URLs provided." });
+
+        logger.LogInformation(
+            "Slug discovery triggered: greenhouse={G} lever={L} ashby={A} smartrecruiters={SR} dryRun={D}",
+            gh.Count, lever.Count, ashby.Count, sr.Count, dryRun);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
+            try
+            {
+                var result = await discovery.DiscoverFromSlugsAsync(gh, lever, ashby, sr, [], dryRun, CancellationToken.None);
+                logger.LogInformation(
+                    "Slug discovery complete (dryRun={D}): added={A} skipped={S} failed={F}",
+                    dryRun, result.Added, result.Skipped, result.Failed);
+                foreach (var kvp in result.ValidatedPerSource)
+                    logger.LogInformation("  {Source}: validated={V} failed={F}", kvp.Key, kvp.Value,
+                        result.FailedPerSource.GetValueOrDefault(kvp.Key));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Slug discovery failed");
+            }
+        });
+
+        return Accepted(new { message = $"Slug discovery started: {total} slugs", dryRun, ashby, greenhouse = gh, lever, smartRecruiters = sr });
+    }
+
+    private static List<string> ParseSlugs(List<string>? urls, List<string>? slugs)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var url in urls ?? [])
+        {
+            if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)) continue;
+            var slug = uri.AbsolutePath.Trim('/').Split('/')[0];
+            if (!string.IsNullOrWhiteSpace(slug))
+                result.Add(slug);
+        }
+
+        foreach (var slug in slugs ?? [])
+            if (!string.IsNullOrWhiteSpace(slug))
+                result.Add(slug.Trim());
+
+        return [.. result];
     }
 
     [HttpPost("wikidata-enrich")]

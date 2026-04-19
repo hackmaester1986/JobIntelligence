@@ -4,6 +4,7 @@ using System.Text.Json;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace JobIntelligence.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260417220903_AddResumeUploadTool")]
+    partial class AddResumeUploadTool
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -52,7 +55,7 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ChatLogs", (string)null);
+                    b.ToTable("ChatLogs");
                 });
 
             modelBuilder.Entity("JobIntelligence.Core.Entities.CollectionRun", b =>
@@ -927,7 +930,7 @@ namespace JobIntelligence.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PageVisits", (string)null);
+                    b.ToTable("PageVisits");
                 });
 
             modelBuilder.Entity("JobIntelligence.Core.Entities.Resume", b =>

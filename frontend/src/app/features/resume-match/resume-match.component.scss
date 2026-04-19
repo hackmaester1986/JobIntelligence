@@ -1,0 +1,238 @@
+.resume-match-container {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+// Upload card
+.upload-card {
+  mat-card-actions {
+    padding: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+}
+
+.drop-zone {
+  border: 2px dashed #bbb;
+  border-radius: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  margin-top: 8px;
+
+  &:hover {
+    border-color: #1976d2;
+    background: rgba(25, 118, 210, 0.04);
+  }
+
+  &.dragging {
+    border-color: #1976d2;
+    background: rgba(25, 118, 210, 0.08);
+  }
+
+  &.has-file {
+    border-color: #4caf50;
+    background: rgba(76, 175, 80, 0.05);
+  }
+}
+
+.drop-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  color: #bbb;
+  margin-bottom: 12px;
+
+  &.file-ready {
+    color: #4caf50;
+  }
+}
+
+.drop-primary {
+  font-size: 16px;
+  margin: 0 0 4px;
+  color: #333;
+}
+
+.browse-link {
+  color: #1976d2;
+  text-decoration: underline;
+}
+
+.drop-hint {
+  font-size: 13px;
+  color: #888;
+  margin: 0;
+}
+
+.file-name {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 4px;
+  color: #333;
+  word-break: break-all;
+}
+
+.error-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #d32f2f;
+  margin-top: 12px;
+  font-size: 14px;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+// Loading
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px 0;
+
+  mat-progress-bar {
+    border-radius: 4px;
+  }
+}
+
+.progress-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #555;
+}
+
+.progress-pct {
+  font-weight: 600;
+  color: #1976d2;
+}
+
+// Resume summary
+.resume-summary {
+  mat-chip-set {
+    margin-top: 8px;
+  }
+}
+
+.saved-at {
+  font-size: 12px;
+  color: #aaa;
+}
+
+// Results
+.results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+  color: #555;
+  margin: 0;
+}
+
+// Match cards
+.matches-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.match-card {
+  .match-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .match-title-group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .job-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .company-name {
+    font-size: 13px;
+    color: #666;
+    margin: 0;
+  }
+
+  .job-meta {
+    font-size: 13px;
+    color: #777;
+    margin: 0 0 10px;
+  }
+
+  .card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+// Similarity badge
+.similarity-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 18px;
+  min-width: 80px;
+  text-align: center;
+
+  .similarity-label {
+    font-size: 10px;
+    font-weight: 400;
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  &.match-excellent { background: #e8f5e9; color: #2e7d32; }
+  &.match-strong    { background: #e3f2fd; color: #1565c0; }
+  &.match-good      { background: #fff8e1; color: #f57f17; }
+  &.match-partial   { background: #f5f5f5; color: #616161; }
+}
+
+// Job chips (reuse pattern from jobs-list)
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+
+  &.remote  { background: #e8f5e9; color: #2e7d32; }
+  &.hybrid  { background: #e3f2fd; color: #1565c0; }
+}
+
+.apply-btn {
+  font-size: 13px;
+}

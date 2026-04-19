@@ -36,5 +36,10 @@ export const routes: Routes = [
     path: 'analysis',
     loadComponent: () =>
       import('./features/analysis/analysis.component').then(m => m.AnalysisComponent)
+  },
+  {
+    path: 'resume-match',
+    loadComponent: () =>
+      import('./features/resume-match/resume-match.component').then(m => m.ResumeMatchComponent)
   }
 ];

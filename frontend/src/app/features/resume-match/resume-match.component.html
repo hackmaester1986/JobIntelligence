@@ -1,0 +1,134 @@
+<div class="resume-match-container">
+
+  <!-- Upload Card -->
+  <mat-card class="upload-card">
+    <mat-card-header>
+      <mat-icon mat-card-avatar>description</mat-icon>
+      <mat-card-title>Resume Match</mat-card-title>
+      <mat-card-subtitle>Upload your resume to find the most relevant open positions</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <!-- Drop zone -->
+      <div
+        class="drop-zone"
+        [class.dragging]="isDragging()"
+        [class.has-file]="selectedFile()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave()"
+        (drop)="onDrop($event)"
+        (click)="fileInput.click()">
+
+        <input #fileInput type="file" accept=".pdf,.docx,.txt" (change)="onFileSelected($event)" hidden>
+
+        <ng-container *ngIf="!selectedFile(); else fileSelected">
+          <mat-icon class="drop-icon">upload_file</mat-icon>
+          <p class="drop-primary">Drop your resume here or <span class="browse-link">browse</span></p>
+          <p class="drop-hint">PDF, DOCX, or TXT · Max 10 MB</p>
+        </ng-container>
+
+        <ng-template #fileSelected>
+          <mat-icon class="drop-icon file-ready">check_circle</mat-icon>
+          <p class="file-name">{{ selectedFile()!.name }}</p>
+          <p class="drop-hint">{{ formatFileSize(selectedFile()!.size) }}</p>
+        </ng-template>
+      </div>
+
+      <!-- Error -->
+      <p class="error-msg" *ngIf="error()">
+        <mat-icon>error_outline</mat-icon> {{ error() }}
+      </p>
+    </mat-card-content>
+
+    <mat-card-actions>
+      <button
+        mat-flat-button color="primary"
+        [disabled]="!selectedFile() || stage() === 'uploading' || stage() === 'fetching'"
+        (click)="analyze()">
+        <mat-icon>search</mat-icon>
+        Find Matching Jobs
+      </button>
+      <button mat-button *ngIf="selectedFile()" (click)="reset()">
+        Clear
+      </button>
+    </mat-card-actions>
+  </mat-card>
+
+  <!-- Loading -->
+  <div class="loading-state" *ngIf="stage() === 'uploading' || stage() === 'fetching'">
+    <div class="progress-label-row">
+      <span class="progress-label-text">{{ progressLabel() }}</span>
+      <span class="progress-pct">{{ progress() }}%</span>
+    </div>
+    <mat-progress-bar mode="determinate" [value]="progress()"></mat-progress-bar>
+  </div>
+
+  <!-- Results -->
+  <ng-container *ngIf="stage() === 'done'">
+
+    <!-- Extracted resume summary -->
+    <mat-card class="resume-summary" *ngIf="resume() as r">
+      <mat-card-header>
+        <mat-card-title>{{ r.name ?? 'Your Resume' }}</mat-card-title>
+        <mat-card-subtitle>
+          <span *ngIf="r.yearsOfExperience">{{ r.yearsOfExperience }} yrs exp · </span>
+          <span *ngIf="r.educationLevel">{{ r.educationLevel | titlecase }}<ng-container *ngIf="r.educationField"> in {{ r.educationField }}</ng-container> · </span>
+          <span *ngIf="r.location">{{ r.location }}</span>
+        </mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content *ngIf="r.skills.length > 0">
+        <mat-chip-set>
+          <mat-chip *ngFor="let skill of r.skills">{{ skill }}</mat-chip>
+        </mat-chip-set>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Match count -->
+    <p class="results-header">
+      <span>
+        <strong>{{ matches().length }}</strong> matching jobs found
+        <span *ngIf="savedAt()" class="saved-at"> · saved {{ savedAt() | date:'MMM d, h:mm a' }}</span>
+      </span>
+      <button mat-button color="primary" (click)="reset()">
+        <mat-icon>upload</mat-icon> Upload another
+      </button>
+    </p>
+
+    <!-- Job match cards -->
+    <div class="matches-grid">
+      <mat-card class="match-card" *ngFor="let job of matches()">
+        <mat-card-content>
+          <div class="match-header">
+            <div class="match-title-group">
+              <h3 class="job-title">{{ job.title }}</h3>
+              <p class="company-name">{{ job.companyName }}</p>
+            </div>
+            <span class="similarity-badge" [class]="similarityClass(job.similarity)">
+              {{ job.similarity | percent:'1.0-0' }}
+              <span class="similarity-label">{{ similarityLabel(job.similarity) }}</span>
+            </span>
+          </div>
+
+          <p class="job-meta">
+            <ng-container *ngIf="job.locationRaw">{{ job.locationRaw }}</ng-container>
+            <ng-container *ngIf="job.seniorityLevel"> · {{ job.seniorityLevel }}</ng-container>
+            <ng-container *ngIf="job.industry"> · {{ job.industry }}</ng-container>
+          </p>
+
+          <div class="card-footer">
+            <div class="chips">
+              <span *ngIf="job.isRemote" class="chip remote">Remote</span>
+              <span *ngIf="job.isHybrid && !job.isRemote" class="chip hybrid">Hybrid</span>
+            </div>
+            <a *ngIf="job.applyUrl" mat-flat-button color="primary" class="apply-btn"
+               [href]="job.applyUrl" target="_blank" rel="noopener noreferrer">
+              Apply
+            </a>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+
+  </ng-container>
+
+</div>

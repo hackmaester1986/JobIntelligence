@@ -17,5 +17,11 @@ public class CollectionCancellationService
         _cts?.Cancel();
     }
 
+    public void Complete()
+    {
+        _cts?.Dispose();
+        _cts = null;
+    }
+
     public bool IsRunning => _cts is { IsCancellationRequested: false };
 }

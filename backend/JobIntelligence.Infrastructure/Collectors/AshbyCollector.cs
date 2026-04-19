@@ -121,7 +121,7 @@ public class AshbyCollector(
         var loc = LocationParser.Parse(locationText);
         var salary = Parse(job.DescriptionHtml);
 
-        var isRemote = job.IsRemote || job.WorkplaceType == "Remote" || loc.IsRemote;
+        var isRemote = job.IsRemote == true || job.WorkplaceType == "Remote" || loc.IsRemote;
         var isHybrid = job.WorkplaceType == "Hybrid" || loc.IsHybrid;
 
         var employmentType = job.EmploymentType?.ToLowerInvariant() switch
@@ -228,7 +228,7 @@ public class AshbyCollector(
         [property: JsonPropertyName("team")] string? Team,
         [property: JsonPropertyName("employmentType")] string? EmploymentType,
         [property: JsonPropertyName("location")] string? Location,
-        [property: JsonPropertyName("isRemote")] bool IsRemote,
+        [property: JsonPropertyName("isRemote")] bool? IsRemote,
         [property: JsonPropertyName("workplaceType")] string? WorkplaceType,
         [property: JsonPropertyName("publishedAt")] DateTimeOffset? PublishedAt,
         [property: JsonPropertyName("applyUrl")] string? ApplyUrl,

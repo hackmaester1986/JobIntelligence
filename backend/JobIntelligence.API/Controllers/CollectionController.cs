@@ -38,6 +38,10 @@ public class CollectionController(
             {
                 logger.LogError(ex, "Background collection failed");
             }
+            finally
+            {
+                cancellation.Complete();
+            }
         });
 
         return Accepted(new { message = $"Collection started for: {source ?? "all sources"}" });

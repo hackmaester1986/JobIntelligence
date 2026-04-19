@@ -17,9 +17,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<DashboardSnapshot> DashboardSnapshots => Set<DashboardSnapshot>();
     public DbSet<PageVisit> PageVisits => Set<PageVisit>();
     public DbSet<ChatLog> ChatLogs => Set<ChatLog>();
+    public DbSet<JobEmbedding> JobEmbeddings => Set<JobEmbedding>();
+    public DbSet<Resume> Resumes => Set<Resume>();
+    public DbSet<ResumeEmbedding> ResumeEmbeddings => Set<ResumeEmbedding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Anthropic;
 using Anthropic.Exceptions;
 using Anthropic.Models.Messages;
+using ClosedXML.Excel;
 using JobIntelligence.API.Filters;
 using JobIntelligence.Core.Entities;
 using JobIntelligence.Core.Interfaces;
@@ -500,150 +501,153 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         [property: JsonPropertyName("text")] string? Text);
 
     [HttpPost("extract-skills")]
-    public IActionResult ExtractSkills([FromQuery] int batchSize = 100, [FromQuery] int chunkSize = 20)
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> ExtractSkills([FromQuery] int batchSize = 100, [FromQuery] int chunkSize = 20)
     {
         logger.LogInformation("Skill extraction triggered: batchSize={B} chunkSize={C}", batchSize, chunkSize);
 
-        _ = Task.Run(async () =>
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var anthropic = scope.ServiceProvider.GetRequiredService<AnthropicClient>();
+
+        // Load existing canonical names AND aliases for dedup marking
+        var taxonomy = await db.SkillTaxonomies
+            .Select(s => new { s.CanonicalName, s.Aliases })
+            .ToListAsync();
+
+        var existingSkills = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in taxonomy)
         {
-            using var scope = scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var anthropic = scope.ServiceProvider.GetRequiredService<AnthropicClient>();
-
-            // Load existing canonical names AND aliases (lowercased) for dedup
-            var taxonomy = await db.SkillTaxonomies
-                .Select(s => new { s.CanonicalName, s.Aliases })
-                .ToListAsync();
-
-            var existingSkills = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var s in taxonomy)
+            existingSkills.Add(s.CanonicalName);
+            foreach (var alias in s.Aliases.RootElement.EnumerateArray())
             {
-                existingSkills.Add(s.CanonicalName);
-                foreach (var alias in s.Aliases.RootElement.EnumerateArray())
-                {
-                    var a = alias.GetString();
-                    if (!string.IsNullOrWhiteSpace(a))
-                        existingSkills.Add(a);
-                }
+                var a = alias.GetString();
+                if (!string.IsNullOrWhiteSpace(a))
+                    existingSkills.Add(a);
             }
+        }
 
-            // Fetch a larger window from DB, filter to tech titles in memory
-            var candidates = await db.JobPostings
-                .Where(p => p.IsActive && p.Description != null)
-                .OrderBy(_ => EF.Functions.Random())
-                .Take(batchSize * 5)
-                .Select(p => new { p.Title, p.Description })
-                .ToListAsync();
+        var postings = await db.JobPostings
+            .Where(p => p.IsActive && p.Description != null)
+            .OrderBy(_ => EF.Functions.Random())
+            .Take(batchSize)
+            .Select(p => new { p.Title, p.Description })
+            .ToListAsync();
 
-            var techPostings = candidates
-                .Where(p => TechTitleKeywords.Any(k => p.Title.Contains(k, StringComparison.OrdinalIgnoreCase)))
-                .Take(batchSize)
-                .ToList();
+        logger.LogInformation("Skill extraction: {Count} postings to process", postings.Count);
 
-            logger.LogInformation("Skill extraction: {Count} tech postings to process", techPostings.Count);
+        // name → category
+        var extractedSkills = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-            // name → category, accumulated across all chunks
-            var extractedSkills = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var chunk in postings.Chunk(chunkSize))
+        {
+            var combinedText = string.Join("\n\n---\n\n", chunk.Select((p, i) =>
+                $"Job {i + 1} - {p.Title}:\n{(p.Description!.Length > 2000 ? p.Description[..2000] : p.Description)}"));
 
-            foreach (var chunk in techPostings.Chunk(chunkSize))
+            var prompt = $$"""
+                From these {{chunk.Length}} job postings, extract only concrete hard technical skills — things a candidate would list on a resume as a specific technology they know.
+
+                INCLUDE: programming languages, frameworks, libraries, databases, cloud services, DevOps tools, software platforms, protocols, and technical certifications.
+                EXCLUDE: soft skills, general competencies, job functions, business processes, methodologies (Agile, Scrum, etc.), and vague phrases like "scalability", "problem solving", or "communication".
+
+                Each skill must be a specific named technology or tool (e.g. "React", "PostgreSQL", "Kubernetes", "AWS Lambda", "Terraform", "Python").
+
+                Return ONLY a JSON array. Each element must have "name" (the skill) and "category" (one of: Language, Framework, Database, Cloud, DevOps, Tool, Platform, Security, Data).
+
+                Example: [{"name":"React","category":"Framework"},{"name":"PostgreSQL","category":"Database"},{"name":"Terraform","category":"DevOps"}]
+
+                Job postings:
+                {{combinedText}}
+                """;
+
+            try
             {
-                var combinedText = string.Join("\n\n---\n\n", chunk.Select((p, i) =>
-                    $"Job {i + 1} - {p.Title}:\n{(p.Description!.Length > 2000 ? p.Description[..2000] : p.Description)}"));
-
-                var prompt = $$"""
-                    From these {{chunk.Length}} job postings, extract only concrete hard technical skills — things a developer would list on a resume as a specific technology they know.
-
-                    INCLUDE: programming languages, frameworks, libraries, databases, cloud services, DevOps tools, software platforms, protocols, and technical certifications.
-                    EXCLUDE: soft skills, general competencies, job functions, business processes, methodologies (Agile, Scrum, etc.), and vague phrases like "scalability", "problem solving", or "communication".
-
-                    Each skill must be a specific named technology or tool (e.g. "React", "PostgreSQL", "Kubernetes", "AWS Lambda", "Terraform", "Python").
-
-                    Return ONLY a JSON array. Each element must have "name" (the skill) and "category" (one of: Language, Framework, Database, Cloud, DevOps, Tool, Platform, Security, Data).
-
-                    Example: [{"name":"React","category":"Framework"},{"name":"PostgreSQL","category":"Database"},{"name":"Terraform","category":"DevOps"}]
-
-                    Job postings:
-                    {{combinedText}}
-                    """;
-
-                try
+                var response = await anthropic.Messages.Create(new MessageCreateParams
                 {
-                    var response = await anthropic.Messages.Create(new MessageCreateParams
+                    Model = Model.ClaudeHaiku4_5_20251001,
+                    MaxTokens = 4096,
+                    System = "You are a technical skill extraction assistant. Respond ONLY with a valid JSON array. No explanation, no markdown, no code fences — just the JSON array.",
+                    Messages = [new MessageParam { Role = Role.User, Content = prompt }]
+                });
+
+                string? rawText = null;
+                foreach (var block in response.Content)
+                    if (block.TryPickText(out TextBlock? tb) && tb != null)
+                        rawText = tb.Text;
+
+                if (!string.IsNullOrWhiteSpace(rawText))
+                {
+                    var json = rawText.Trim();
+                    var arrStart = json.IndexOf('[');
+                    var arrEnd   = json.LastIndexOf(']');
+                    if (arrStart < 0)
                     {
-                        Model = Model.ClaudeHaiku4_5_20251001,
-                        MaxTokens = 4096,
-                        System = "You are a technical skill extraction assistant. Respond ONLY with a valid JSON array. No explanation, no markdown, no code fences — just the JSON array.",
-                        Messages = [new MessageParam { Role = Role.User, Content = prompt }]
-                    });
-
-                    string? rawText = null;
-                    foreach (var block in response.Content)
-                        if (block.TryPickText(out TextBlock? tb) && tb != null)
-                            rawText = tb.Text;
-
-                    if (!string.IsNullOrWhiteSpace(rawText))
-                    {
-                        var json = rawText.Trim();
-                        var arrStart = json.IndexOf('[');
-                        var arrEnd   = json.LastIndexOf(']');
-                        if (arrStart < 0)
-                        {
-                            logger.LogWarning("Skill extraction: no JSON array in response: {Raw}", json[..Math.Min(json.Length, 200)]);
-                            continue;
-                        }
-                        // If no closing bracket the response was truncated — salvage complete objects
-                        json = arrEnd > arrStart
-                            ? json[arrStart..(arrEnd + 1)]
-                            : json[arrStart..] + "]";
-
-                        var skills = JsonSerializer.Deserialize<List<SkillExtractionItem>>(json);
-                        if (skills != null)
-                        {
-                            foreach (var skill in skills)
-                            {
-                                if (!string.IsNullOrWhiteSpace(skill.Name) && !extractedSkills.ContainsKey(skill.Name))
-                                    extractedSkills[skill.Name] = skill.Category;
-                            }
-                        }
+                        logger.LogWarning("Skill extraction: no JSON array in response: {Raw}", json[..Math.Min(json.Length, 200)]);
+                        continue;
                     }
+                    json = arrEnd > arrStart
+                        ? json[arrStart..(arrEnd + 1)]
+                        : json[arrStart..] + "]";
 
-                    await Task.Delay(500);
-                }
-                catch (AnthropicRateLimitException ex)
-                {
-                    logger.LogWarning(ex, "Skill extraction: rate limited — stopping early");
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Skill extraction: failed to process chunk, continuing");
-                }
-            }
-
-            int added = 0;
-            foreach (var (name, category) in extractedSkills)
-            {
-                if (!existingSkills.Contains(name))
-                {
-                    db.SkillTaxonomies.Add(new SkillTaxonomy
+                    var skills = JsonSerializer.Deserialize<List<SkillExtractionItem>>(json);
+                    if (skills != null)
                     {
-                        CanonicalName = name,
-                        Category = category,
-                        Aliases = JsonDocument.Parse("[]"),
-                        CreatedAt = DateTime.UtcNow
-                    });
-                    existingSkills.Add(name);
-                    added++;
+                        foreach (var skill in skills)
+                            if (!string.IsNullOrWhiteSpace(skill.Name) && !extractedSkills.ContainsKey(skill.Name))
+                                extractedSkills[skill.Name] = skill.Category;
+                    }
                 }
+
+                await Task.Delay(500);
             }
+            catch (AnthropicRateLimitException ex)
+            {
+                logger.LogWarning(ex, "Skill extraction: rate limited — stopping early");
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Skill extraction: failed to process chunk, continuing");
+            }
+        }
 
-            await db.SaveChangesAsync();
-            logger.LogInformation(
-                "Skill extraction complete: {Extracted} skills extracted across all chunks, {Added} new skills added to taxonomy",
-                extractedSkills.Count, added);
-        });
+        logger.LogInformation("Skill extraction complete: {Count} skills extracted", extractedSkills.Count);
 
-        return Accepted(new { message = $"Skill extraction started for batch of {batchSize}" });
+        // Build Excel workbook
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("Proposed Skills");
+
+        ws.Cell(1, 1).Value = "Name";
+        ws.Cell(1, 2).Value = "Category";
+        ws.Cell(1, 3).Value = "Already Exists";
+
+        var headerRow = ws.Row(1);
+        headerRow.Style.Font.Bold = true;
+        headerRow.Style.Fill.BackgroundColor = XLColor.FromArgb(0x1F, 0x77, 0xB4);
+        headerRow.Style.Font.FontColor = XLColor.White;
+
+        int row = 2;
+        foreach (var (name, category) in extractedSkills.OrderBy(kv => kv.Key))
+        {
+            ws.Cell(row, 1).Value = name;
+            ws.Cell(row, 2).Value = category ?? "";
+            var alreadyExists = existingSkills.Contains(name);
+            ws.Cell(row, 3).Value = alreadyExists ? "Yes" : "No";
+            if (alreadyExists)
+                ws.Row(row).Style.Fill.BackgroundColor = XLColor.FromArgb(0xF5, 0xF5, 0xF5);
+            row++;
+        }
+
+        ws.Columns().AdjustToContents();
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        ms.Position = 0;
+
+        var filename = $"proposed-skills-{DateTime.UtcNow:yyyyMMdd-HHmmss}.xlsx";
+        return File(ms.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename);
     }
 
     private record SkillExtractionItem(
@@ -787,6 +791,74 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         });
 
         return Accepted(new { message = $"Size enrichment started for batch of {batchSize}" });
+    }
+
+    [HttpPost("parse-requirements")]
+    public IActionResult ParseRequirements([FromQuery] int batchSize = 5000)
+    {
+        logger.LogInformation("Requirements parse backfill triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var postings = await db.JobPostings
+                .Where(p => p.IsActive
+                    && p.YearsExperienceMin == null
+                    && p.EducationLevel == null
+                    && p.RequiresUsAuthorization == null
+                    && (p.Description != null || p.DescriptionHtml != null))
+                .Select(p => new { p.Id, p.Description, p.DescriptionHtml })
+                .Take(batchSize)
+                .ToListAsync();
+
+            logger.LogInformation("Requirements parse: {Count} postings to process", postings.Count);
+
+            int updated = 0;
+            foreach (var p in postings)
+            {
+                var text = p.Description ?? p.DescriptionHtml;
+                var exp   = JobIntelligence.Infrastructure.Parsing.ExperienceParser.Parse(text);
+                var edu   = JobIntelligence.Infrastructure.Parsing.EducationParser.Parse(text);
+                var auth  = JobIntelligence.Infrastructure.Parsing.WorkAuthorizationParser.Parse(text);
+
+                if (exp.Min == null && exp.Max == null && edu == null && auth == null)
+                    continue;
+
+                await db.JobPostings
+                    .Where(j => j.Id == p.Id)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(j => j.YearsExperienceMin,       exp.Min)
+                        .SetProperty(j => j.YearsExperienceMax,       exp.Max)
+                        .SetProperty(j => j.EducationLevel,           edu)
+                        .SetProperty(j => j.RequiresUsAuthorization,  auth)
+                        .SetProperty(j => j.UpdatedAt,                DateTime.UtcNow));
+                updated++;
+            }
+
+            logger.LogInformation("Requirements parse complete: {Updated}/{Total} postings updated", updated, postings.Count);
+        });
+
+        return Accepted(new { message = $"Requirements parse backfill started for batch of {batchSize}" });
+    }
+
+    [HttpPost("embed-jobs")]
+    public IActionResult EmbedJobs([FromQuery] int batchSize = 500)
+    {
+        logger.LogInformation("Job embedding backfill triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var embeddingService = scope.ServiceProvider.GetRequiredService<IJobEmbeddingService>();
+            var result = await embeddingService.EmbedJobsAsync(batchSize);
+            logger.LogInformation(
+                "Job embedding backfill complete: processed={P} embedded={E} skipped={S} failed={F}",
+                result.Processed, result.Embedded, result.Skipped, result.Failed);
+        });
+
+        return Accepted(new { message = $"Job embedding backfill started for batch of {batchSize}" });
     }
 
     [HttpPost("salary-parse")]

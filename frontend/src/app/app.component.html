@@ -7,6 +7,7 @@
   <a class="desktop-nav" mat-button routerLink="/jobs" routerLinkActive="active-link">Jobs</a>
   <a class="desktop-nav" mat-button routerLink="/companies" routerLinkActive="active-link">Companies</a>
   <a class="desktop-nav" mat-button routerLink="/analysis" routerLinkActive="active-link">Analysis</a>
+  <a class="desktop-nav" mat-button routerLink="/resume-match" routerLinkActive="active-link">Resume Match</a>
   <mat-button-toggle-group class="location-toggle desktop-nav" [value]="locationFilter.usOnly() ? 'us' : 'all'" (change)="locationFilter.usOnly.set($event.value === 'us')">
     <mat-button-toggle value="us">US</mat-button-toggle>
     <mat-button-toggle value="all">International</mat-button-toggle>
@@ -23,6 +24,7 @@
   <a mat-menu-item routerLink="/jobs"><mat-icon>work</mat-icon>Jobs</a>
   <a mat-menu-item routerLink="/companies"><mat-icon>business</mat-icon>Companies</a>
   <a mat-menu-item routerLink="/analysis"><mat-icon>bar_chart</mat-icon>Analysis</a>
+  <a mat-menu-item routerLink="/resume-match"><mat-icon>description</mat-icon>Resume Match</a>
   <mat-divider />
   <button mat-menu-item (click)="locationFilter.usOnly.set(true)" [class.active-menu-item]="locationFilter.usOnly()">
     <mat-icon>{{ locationFilter.usOnly() ? 'radio_button_checked' : 'radio_button_unchecked' }}</mat-icon>US Only

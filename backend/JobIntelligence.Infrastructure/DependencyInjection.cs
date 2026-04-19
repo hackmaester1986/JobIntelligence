@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Pgvector;
 using System.Text.Json;
 
 namespace JobIntelligence.Infrastructure;
@@ -29,6 +30,8 @@ public static class DependencyInjection
             DateTime cacheExpiry = DateTime.MinValue;
 
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(configuration.GetConnectionString("DefaultConnection"));
+            dataSourceBuilder.UseVector();
+            dataSourceBuilder.EnableDynamicJson();
             dataSourceBuilder.UsePasswordProvider(
                 passwordProvider: _ =>
                 {
@@ -54,13 +57,16 @@ public static class DependencyInjection
                 });
 
             var dataSource = dataSourceBuilder.Build();
-            services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(dataSource));
+            services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(dataSource, o => o.UseVector()));
         }
         else
         {
             // Development: full connection string including password in appsettings
-            services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
+            var devDataSourceBuilder = new NpgsqlDataSourceBuilder(configuration.GetConnectionString("DefaultConnection"));
+            devDataSourceBuilder.UseVector();
+            devDataSourceBuilder.EnableDynamicJson();
+            var devDataSource = devDataSourceBuilder.Build();
+            services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(devDataSource, o => o.UseVector()));
         }
 
         services.AddHttpClient("Greenhouse", client =>
@@ -134,6 +140,16 @@ public static class DependencyInjection
         {
             client.Timeout = TimeSpan.FromSeconds(10);
         });
+
+        services.AddHttpClient("OpenAI", client =>
+        {
+            client.BaseAddress = new Uri("https://api.openai.com/");
+            client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        services.AddScoped<IJobEmbeddingService, JobEmbeddingService>();
+        services.AddScoped<IResumeService, ResumeService>();
 
 
         var apiKey = configuration["Anthropic:ApiKey"] ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");

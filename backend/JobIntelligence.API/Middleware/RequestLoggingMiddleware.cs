@@ -10,6 +10,11 @@ public class RequestLoggingMiddleware(RequestDelegate next)
         "/health", "/_", "/favicon", "/assets", "/styles", "/main.", "/polyfills.", "/runtime."
     ];
 
+    private static readonly string[] BotUserAgentTokens =
+    [
+        "bot", "crawler", "spider", "k6", "postman", "curl", "wget", "python-requests", "go-http-client"
+    ];
+
     public async Task InvokeAsync(HttpContext context, IServiceScopeFactory scopeFactory)
     {
         await next(context);
@@ -17,6 +22,10 @@ public class RequestLoggingMiddleware(RequestDelegate next)
         var path = context.Request.Path.Value ?? "/";
 
         if (IgnoredPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var userAgent = context.Request.Headers.UserAgent.ToString();
+        if (BotUserAgentTokens.Any(t => userAgent.Contains(t, StringComparison.OrdinalIgnoreCase)))
             return;
 
         var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()

@@ -14,6 +14,7 @@ public class CollectionOrchestrator(
     IEnumerable<IJobCollector> collectors,
     ApplicationDbContext db,
     ICompanyStatsService statsService,
+    IJobEmbeddingService embeddingService,
     ILogger<CollectionOrchestrator> logger) : ICollectionOrchestrator
 {
     public async Task RunAsync(string? sourceName = null, CancellationToken ct = default)
@@ -56,6 +57,7 @@ public class CollectionOrchestrator(
                 .ToList();
 
             int totalFetched = 0, totalNew = 0, totalUpdated = 0, totalRemoved = 0;
+            var allNewPostingIds = new List<long>();
 
             foreach (var company in companies)
             {
@@ -76,6 +78,8 @@ public class CollectionOrchestrator(
                             .Select(p => new { p.Id, p.Description })
                             .ToListAsync(ct);
 
+                        allNewPostingIds.AddRange(newPostings.Select(p => p.Id));
+
                         foreach (var posting in newPostings)
                         {
                             foreach (var match in Match(posting.Description, skillEntries))
@@ -87,6 +91,21 @@ public class CollectionOrchestrator(
                                     IsRequired = true,
                                     ExtractionMethod = "keyword"
                                 });
+                            }
+
+                            var exp  = ExperienceParser.Parse(posting.Description);
+                            var edu  = EducationParser.Parse(posting.Description);
+                            var auth = WorkAuthorizationParser.Parse(posting.Description);
+
+                            if (exp.Min != null || exp.Max != null || edu != null || auth != null)
+                            {
+                                await db.JobPostings
+                                    .Where(j => j.Id == posting.Id)
+                                    .ExecuteUpdateAsync(s => s
+                                        .SetProperty(j => j.YearsExperienceMin,      exp.Min)
+                                        .SetProperty(j => j.YearsExperienceMax,      exp.Max)
+                                        .SetProperty(j => j.EducationLevel,          edu)
+                                        .SetProperty(j => j.RequiresUsAuthorization, auth), ct);
                             }
                         }
                     }
@@ -118,6 +137,19 @@ public class CollectionOrchestrator(
                 }
 
                 await Task.Delay(100, ct);
+            }
+
+            if (allNewPostingIds.Count > 0)
+            {
+                try
+                {
+                    await embeddingService.EmbedNewPostingsAsync(allNewPostingIds, ct);
+                    logger.LogInformation("{Source}: embedded {Count} new postings", collector.SourceName, allNewPostingIds.Count);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Embedding failed for {Source} — {Count} postings skipped", collector.SourceName, allNewPostingIds.Count);
+                }
             }
 
             await db.CollectionRuns
