@@ -15,6 +15,7 @@ public class CollectionOrchestrator(
     ApplicationDbContext db,
     ICompanyStatsService statsService,
     IJobEmbeddingService embeddingService,
+    IGeocodingService geocodingService,
     ILogger<CollectionOrchestrator> logger) : ICollectionOrchestrator
 {
     public async Task RunAsync(string? sourceName = null, CancellationToken ct = default)
@@ -150,6 +151,37 @@ public class CollectionOrchestrator(
                 {
                     logger.LogError(ex, "Embedding failed for {Source} — {Count} postings skipped", collector.SourceName, allNewPostingIds.Count);
                 }
+
+                try
+                {
+                    await geocodingService.WarmCacheAsync(ct);
+                    var toGeocode = await db.JobPostings
+                        .Where(p => allNewPostingIds.Contains(p.Id) && !p.IsRemote
+                                    && p.Latitude == null
+                                    && (p.LocationCity != null || p.LocationState != null || p.LocationRaw != null))
+                        .Select(p => new { p.Id, p.LocationCity, p.LocationState, p.LocationCountry, p.LocationRaw })
+                        .ToListAsync(ct);
+
+                    int geocoded = 0;
+                    foreach (var posting in toGeocode)
+                    {
+                        var coords = await geocodingService.GeocodeAsync(
+                            posting.LocationCity, posting.LocationState, posting.LocationCountry, posting.LocationRaw, ct);
+                        if (coords.HasValue)
+                        {
+                            await db.JobPostings.Where(j => j.Id == posting.Id)
+                                .ExecuteUpdateAsync(s => s
+                                    .SetProperty(j => j.Latitude, coords.Value.Lat)
+                                    .SetProperty(j => j.Longitude, coords.Value.Lng), ct);
+                            geocoded++;
+                        }
+                    }
+                    logger.LogInformation("{Source}: geocoded {Geocoded}/{Total} new postings", collector.SourceName, geocoded, toGeocode.Count);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Geocoding failed for {Source}", collector.SourceName);
+                }
             }
 
             await db.CollectionRuns
@@ -178,85 +210,92 @@ public class CollectionOrchestrator(
         }
     }
 
-    private async Task WriteDashboardSnapshotsAsync(CancellationToken ct)
+    public async Task WriteDashboardSnapshotsAsync(CancellationToken ct = default)
     {
+        // Use the EF-managed connection — open once and don't dispose (EF owns lifetime)
         var conn = (NpgsqlConnection)db.Database.GetDbConnection();
-        if (conn.State != System.Data.ConnectionState.Open)
-            await conn.OpenAsync(ct);
+        await db.Database.OpenConnectionAsync(ct);
 
-        foreach (var isUs in new[] { false, true })
+        try
         {
-            var usFilter = isUs
-                ? "AND (jp.is_us_posting IS TRUE OR jp.is_us_posting IS NULL)"
-                : "";
-
-            var sql = $"""
-                WITH filtered_jobs AS (
-                    SELECT jp.company_id, jp.is_remote, jp.is_hybrid, jp.first_seen_at, jp.seniority_level, jp.department
-                    FROM job_postings jp
-                    JOIN companies c ON c.id = jp.company_id
-                    WHERE c.is_tech_hiring IS DISTINCT FROM FALSE AND jp.is_active
-                    {usFilter}
-                ),
-                valid_companies AS (
-                    SELECT id, canonical_name AS name, logo_url AS "logoUrl", active_job_count AS "jobCount"
-                    FROM companies WHERE is_tech_hiring IS DISTINCT FROM FALSE
-                ),
-                counts AS (
-                    SELECT
-                        COUNT(*) AS total_active,
-                        COUNT(*) FILTER (WHERE is_remote) AS remote,
-                        COUNT(*) FILTER (WHERE is_hybrid) AS hybrid,
-                        COUNT(*) FILTER (WHERE first_seen_at >= CURRENT_DATE) AS active_today
-                    FROM filtered_jobs
-                ),
-                seniority AS (
-                    SELECT seniority_level AS label, COUNT(*) AS count
-                    FROM filtered_jobs WHERE seniority_level IS NOT NULL
-                    GROUP BY seniority_level ORDER BY count DESC
-                ),
-                departments AS (
-                    SELECT department, COUNT(*) AS count
-                    FROM filtered_jobs WHERE department IS NOT NULL
-                    GROUP BY department ORDER BY count DESC LIMIT 10
-                ),
-                company_count AS (SELECT COUNT(*) AS total FROM valid_companies),
-                top_companies AS (SELECT * FROM valid_companies ORDER BY "jobCount" DESC LIMIT 10)
-                SELECT
-                    (SELECT total_active FROM counts),
-                    (SELECT total FROM company_count),
-                    (SELECT remote FROM counts),
-                    (SELECT hybrid FROM counts),
-                    (SELECT active_today FROM counts),
-                    (SELECT JSON_AGG(ROW_TO_JSON(top_companies)) FROM top_companies),
-                    (SELECT JSON_AGG(ROW_TO_JSON(seniority)) FROM seniority),
-                    (SELECT JSON_AGG(ROW_TO_JSON(departments)) FROM departments)
-                """;
-
-            await using var cmd = new NpgsqlCommand(sql, conn);
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            await reader.ReadAsync(ct);
-
-            var totalActive = reader.GetInt64(0);
-            var remote      = reader.GetInt64(2);
-            var hybrid      = reader.GetInt64(3);
-
-            var snapshot = new DashboardSnapshot
+            foreach (var isUs in new[] { false, true })
             {
-                IsUs            = isUs,
-                TotalActiveJobs = totalActive,
-                TotalCompanies  = reader.GetInt64(1),
-                RemoteJobs      = remote,
-                HybridJobs      = hybrid,
-                OnsiteJobs      = totalActive - remote - hybrid,
-                ActiveToday     = reader.GetInt64(4),
-                TopCompanies    = JsonDocument.Parse(reader.IsDBNull(5) ? "[]" : reader.GetString(5)),
-                JobsBySeniority = JsonDocument.Parse(reader.IsDBNull(6) ? "[]" : reader.GetString(6)),
-                TopDepartments  = JsonDocument.Parse(reader.IsDBNull(7) ? "[]" : reader.GetString(7)),
-            };
+                var usFilter = isUs
+                    ? "AND (jp.is_us_posting IS TRUE OR jp.is_us_posting IS NULL)"
+                    : "";
 
-            await reader.CloseAsync();
-            db.DashboardSnapshots.Add(snapshot);
+                var sql = $"""
+                    WITH filtered_jobs AS (
+                        SELECT jp.company_id, jp.is_remote, jp.is_hybrid, jp.first_seen_at, jp.seniority_level, jp.department
+                        FROM job_postings jp
+                        JOIN companies c ON c.id = jp.company_id
+                        WHERE c.is_tech_hiring IS DISTINCT FROM FALSE AND jp.is_active
+                        {usFilter}
+                    ),
+                    valid_companies AS (
+                        SELECT id, canonical_name AS name, logo_url AS "logoUrl", active_job_count AS "jobCount"
+                        FROM companies WHERE is_tech_hiring IS DISTINCT FROM FALSE
+                    ),
+                    counts AS (
+                        SELECT
+                            COUNT(*) AS total_active,
+                            COUNT(*) FILTER (WHERE is_remote) AS remote,
+                            COUNT(*) FILTER (WHERE is_hybrid) AS hybrid,
+                            COUNT(*) FILTER (WHERE first_seen_at >= CURRENT_DATE) AS active_today
+                        FROM filtered_jobs
+                    ),
+                    seniority AS (
+                        SELECT seniority_level AS label, COUNT(*) AS count
+                        FROM filtered_jobs WHERE seniority_level IS NOT NULL
+                        GROUP BY seniority_level ORDER BY count DESC
+                    ),
+                    departments AS (
+                        SELECT department, COUNT(*) AS count
+                        FROM filtered_jobs WHERE department IS NOT NULL
+                        GROUP BY department ORDER BY count DESC LIMIT 10
+                    ),
+                    company_count AS (SELECT COUNT(*) AS total FROM valid_companies),
+                    top_companies AS (SELECT * FROM valid_companies ORDER BY "jobCount" DESC LIMIT 10)
+                    SELECT
+                        (SELECT total_active FROM counts),
+                        (SELECT total FROM company_count),
+                        (SELECT remote FROM counts),
+                        (SELECT hybrid FROM counts),
+                        (SELECT active_today FROM counts),
+                        (SELECT JSON_AGG(ROW_TO_JSON(top_companies)) FROM top_companies),
+                        (SELECT JSON_AGG(ROW_TO_JSON(seniority)) FROM seniority),
+                        (SELECT JSON_AGG(ROW_TO_JSON(departments)) FROM departments)
+                    """;
+
+                await using var cmd = new NpgsqlCommand(sql, conn) { CommandTimeout = 180 };
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+
+                var totalActive = reader.GetInt64(0);
+                var remote      = reader.GetInt64(2);
+                var hybrid      = reader.GetInt64(3);
+
+                var snapshot = new DashboardSnapshot
+                {
+                    IsUs            = isUs,
+                    TotalActiveJobs = totalActive,
+                    TotalCompanies  = reader.GetInt64(1),
+                    RemoteJobs      = remote,
+                    HybridJobs      = hybrid,
+                    OnsiteJobs      = totalActive - remote - hybrid,
+                    ActiveToday     = reader.GetInt64(4),
+                    TopCompanies    = JsonDocument.Parse(reader.IsDBNull(5) ? "[]" : reader.GetString(5)),
+                    JobsBySeniority = JsonDocument.Parse(reader.IsDBNull(6) ? "[]" : reader.GetString(6)),
+                    TopDepartments  = JsonDocument.Parse(reader.IsDBNull(7) ? "[]" : reader.GetString(7)),
+                };
+
+                await reader.CloseAsync();
+                db.DashboardSnapshots.Add(snapshot);
+            }
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
         }
 
         await db.SaveChangesAsync(ct);
@@ -281,7 +320,10 @@ public class CollectionOrchestrator(
             "workday" => await db.Companies
                 .Where(c => c.WorkdayHost != null && c.WorkdayCareerSite != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
-            _ => await db.Companies.Where(c => c.IsTechHiring != false).ToListAsync(ct)
+            "recruitee" => await db.Companies
+                .Where(c => c.RecruiteeSlug != null && c.IsTechHiring != false)
+                .ToListAsync(ct),
+            _ => []
         };
     }
 }

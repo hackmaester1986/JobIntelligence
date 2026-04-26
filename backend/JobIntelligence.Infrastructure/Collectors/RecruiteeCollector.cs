@@ -12,47 +12,44 @@ using Microsoft.Extensions.Logging;
 
 namespace JobIntelligence.Infrastructure.Collectors;
 
-public class WorkableCollector(
+public class RecruiteeCollector(
     IHttpClientFactory httpClientFactory,
     ApplicationDbContext db,
-    ILogger<WorkableCollector> logger) : IJobCollector
+    ILogger<RecruiteeCollector> logger) : IJobCollector
 {
-    public string SourceName => "workable";
+    public string SourceName => "recruitee";
 
     public async Task<CollectionResult> CollectAsync(Company company, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(company.WorkableSlug))
-            return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, "No Workable slug");
+        if (string.IsNullOrEmpty(company.RecruiteeSlug))
+            return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, "No Recruitee slug");
 
         var source = await db.JobSources.FirstAsync(s => s.Name == SourceName, ct);
-        var client = httpClientFactory.CreateClient("Workable");
+        var client = httpClientFactory.CreateClient("Recruitee");
+        var apiUrl = $"https://{company.RecruiteeSlug}.recruitee.com/api/offers/";
 
-        var fetched = new List<WorkableJob>();
+        List<RecruiteeOffer> fetched;
         try
         {
-            string? token = null;
-            do
-            {
-                var body = new WorkableJobsRequest(token);
-                var response = await client.PostAsJsonAsync(
-                    $"api/v3/accounts/{company.WorkableSlug}/jobs", body, ct);
-                response.EnsureSuccessStatusCode();
-
-                var result = await response.Content.ReadFromJsonAsync<WorkableJobsResponse>(cancellationToken: ct);
-                if (result?.Results == null) break;
-
-                fetched.AddRange(result.Results);
-                token = result.Token;
-            } while (token != null);
+            var response = await client.GetFromJsonAsync<RecruiteeResponse>(apiUrl, ct);
+            fetched = response?.Offers?.Where(o => o.Status == "published").ToList() ?? [];
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            logger.LogWarning("Recruitee board not found for {Company} (slug: {Slug}) — clearing slug",
+                company.CanonicalName, company.RecruiteeSlug);
+            company.RecruiteeSlug = null;
+            await db.SaveChangesAsync(ct);
+            return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, "Board not found (404) — slug cleared");
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to fetch Workable jobs for {Company}", company.CanonicalName);
+            logger.LogWarning(ex, "Failed to fetch Recruitee jobs for {Company}", company.CanonicalName);
             return new CollectionResult(company.CanonicalName, 0, 0, 0, 0, ex.Message);
         }
 
         int newCount = 0, updatedCount = 0, removedCount = 0;
-        var fetchedIds = fetched.Select(j => j.Shortcode).Where(s => s != null).ToHashSet()!;
+        var fetchedIds = fetched.Select(j => j.Id.ToString()).ToHashSet();
 
         var existingMap = await db.JobPostings
             .Where(p => p.SourceId == source.Id && p.CompanyId == company.Id)
@@ -76,25 +73,10 @@ public class WorkableCollector(
 
         foreach (var job in fetched)
         {
-            if (job.Shortcode == null) continue;
+            var externalId = job.Id.ToString();
+            var mapped = MapToPosting(job, source.Id, company.Id, company.RecruiteeSlug!);
 
-            WorkableJobDetail? detail = null;
-            if (!existingMap.ContainsKey(job.Shortcode))
-            {
-                try
-                {
-                    detail = await client.GetFromJsonAsync<WorkableJobDetail>(
-                        $"api/v2/accounts/{company.WorkableSlug}/jobs/{job.Shortcode}", ct);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogDebug(ex, "Failed to fetch Workable job detail for {Shortcode}", job.Shortcode);
-                }
-            }
-
-            var mapped = MapToPosting(job, detail, source.Id, company.Id, company.WorkableSlug!);
-
-            if (!existingMap.TryGetValue(job.Shortcode, out var existing))
+            if (!existingMap.TryGetValue(externalId, out var existing))
             {
                 if (mapped.DescriptionHash != null && removedByHash.TryGetValue(mapped.DescriptionHash, out var prev))
                 {
@@ -127,80 +109,95 @@ public class WorkableCollector(
         }
 
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Workable [{Company}]: fetched={F} new={N} updated={U} removed={R}",
+        logger.LogInformation("Recruitee [{Company}]: fetched={F} new={N} updated={U} removed={R}",
             company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
 
         return new CollectionResult(company.CanonicalName, fetched.Count, newCount, updatedCount, removedCount);
     }
 
-    private static JobPosting MapToPosting(WorkableJob job, WorkableJobDetail? detail, int sourceId, long companyId, string slug)
+    private static JobPosting MapToPosting(RecruiteeOffer job, int sourceId, long companyId, string slug)
     {
-        var location = job.Location;
-        var city = location?.City;
-        var countryCode = location?.CountryCode;
-        var region = location?.Region;
+        var loc = job.Locations?.FirstOrDefault();
+        var city = loc?.City;
+        var countryCode = loc?.CountryCode;
+        var stateCode = loc?.StateCode;
+        var locationRaw = job.Location ?? string.Empty;
 
-        var stateAbbrev = StateNameToAbbrev(region);
-        var state = stateAbbrev ?? (region?.Length == 2 ? region.ToUpperInvariant() : null);
-
-        var locationRaw = string.Join(", ", new[] { city, region, location?.Country }
-            .Where(s => !string.IsNullOrWhiteSpace(s)));
-
-        var isRemote = job.Workplace == "remote" || job.Remote == true;
-        var isHybrid = job.Workplace == "hybrid";
+        var isRemote = job.Remote == true;
+        var isHybrid = job.Hybrid == true;
 
         var descriptionHtml = string.Join("", new[]
         {
-            detail?.Description,
-            detail?.Requirements,
-            detail?.Benefits
+            job.Description,
+            job.Requirements
         }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
-        var salary = Parse(descriptionHtml);
-
-        var employmentType = job.Type?.ToLowerInvariant() switch
+        var descriptionText = StripHtml(descriptionHtml);
+        var salaryFromApi = job.Salary;
+        SalaryParser.ParsedSalary salary;
+        if (salaryFromApi?.Min != null || salaryFromApi?.Max != null)
         {
-            "full" => "Full-time",
-            "part" => "Part-time",
-            "contract" => "Contract",
-            "intern" => "Internship",
+            salary = new SalaryParser.ParsedSalary(
+                salaryFromApi.Min, salaryFromApi.Max,
+                salaryFromApi.Currency, salaryFromApi.Period,
+                salaryFromApi.Min != null || salaryFromApi.Max != null);
+        }
+        else
+        {
+            salary = Parse(descriptionHtml);
+        }
+
+        var employmentType = job.EmploymentTypeCode?.ToLowerInvariant() switch
+        {
+            "fulltime_permanent" or "fulltime" => "Full-time",
+            "parttime_permanent" or "parttime" => "Part-time",
+            "temporary" or "contract" => "Contract",
+            "internship" or "intern" => "Internship",
             _ => null
         };
 
-        var applyUrl = $"https://apply.workable.com/{slug}/j/{job.Shortcode}";
+        var usState = ResolveUsState(stateCode, loc?.State);
 
         return new JobPosting
         {
-            ExternalId = job.Shortcode ?? string.Empty,
+            ExternalId = job.Id.ToString(),
             SourceId = sourceId,
             CompanyId = companyId,
             Title = job.Title ?? string.Empty,
             SeniorityLevel = TitleParser.Parse(job.Title),
-            Department = job.Department?.FirstOrDefault(),
+            Department = job.Department,
             LocationRaw = Truncate(locationRaw, 500),
-            LocationCity = city?.Length > 0 ? city : null,
-            LocationState = state,
+            LocationCity = city,
+            LocationState = usState,
             LocationCountry = countryCode,
             IsRemote = isRemote,
             IsHybrid = isHybrid,
             IsUsPosting = UsLocationClassifier.Classify(locationRaw),
-            Description = detail != null ? System.Text.RegularExpressions.Regex.Replace(descriptionHtml, "<[^>]+>", " ").Trim() : null,
+            Description = descriptionText,
             DescriptionHtml = descriptionHtml.Length > 0 ? descriptionHtml : null,
-            DescriptionHash = Compute(descriptionHtml),
+            DescriptionHash = Compute(descriptionText),
+            IsRemoteInDescription = LocationParser.HasRemoteInDescription(descriptionText),
             SalaryMin = salary.Min,
             SalaryMax = salary.Max,
             SalaryCurrency = salary.Currency,
             SalaryPeriod = salary.Period,
             SalaryDisclosed = salary.Disclosed,
             EmploymentType = employmentType,
-            ApplyUrl = applyUrl,
-            ApplyUrlDomain = "apply.workable.com",
-            PostedAt = job.Published.HasValue
-                ? DateTime.SpecifyKind(job.Published.Value, DateTimeKind.Utc)
+            ApplyUrl = job.CareersApplyUrl,
+            ApplyUrlDomain = $"{slug}.recruitee.com",
+            PostedAt = DateTime.TryParse(job.PublishedAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var publishedAt)
+                ? publishedAt
                 : null,
             IsActive = true,
             RawData = JsonDocument.Parse(JsonSerializer.Serialize(job))
         };
+    }
+
+    // Recruitee returns US state as a full name in loc.State; stateCode is a numeric FIPS code, not useful.
+    private static string? ResolveUsState(string? stateCode, string? stateName)
+    {
+        if (string.IsNullOrWhiteSpace(stateName)) return null;
+        return StateNameToAbbrev(stateName) ?? (stateName.Length == 2 ? stateName.ToUpperInvariant() : null);
     }
 
     private static Dictionary<string, object[]> DetectChanges(JobPosting existing, JobPosting incoming)
@@ -226,15 +223,27 @@ public class WorkableCollector(
         existing.IsUsPosting = incoming.IsUsPosting;
         existing.Department = incoming.Department;
         existing.EmploymentType = incoming.EmploymentType;
+        existing.DescriptionHtml = incoming.DescriptionHtml;
+        existing.Description = incoming.Description;
+        existing.IsRemoteInDescription = incoming.IsRemoteInDescription;
+        existing.DescriptionHash = incoming.DescriptionHash;
+        existing.ApplyUrl = incoming.ApplyUrl;
         existing.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static string? StripHtml(string? html)
+    {
+        if (string.IsNullOrEmpty(html)) return null;
+        return System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ")
+            .Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
+            .Replace("&nbsp;", " ").Trim();
     }
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
 
-    private static string? StateNameToAbbrev(string? name) => name?.Trim().ToUpperInvariant() switch
+    private static string? StateNameToAbbrev(string name) => name.Trim().ToUpperInvariant() switch
     {
-        null or "" => null,
         "ALABAMA" => "AL", "ALASKA" => "AK", "ARIZONA" => "AZ", "ARKANSAS" => "AR",
         "CALIFORNIA" => "CA", "COLORADO" => "CO", "CONNECTICUT" => "CT", "DELAWARE" => "DE",
         "FLORIDA" => "FL", "GEORGIA" => "GA", "HAWAII" => "HI", "IDAHO" => "ID",
@@ -251,39 +260,39 @@ public class WorkableCollector(
         _ => null
     };
 
-    private record WorkableJobsRequest(
-        [property: JsonPropertyName("token")] string? Token,
-        [property: JsonPropertyName("query")] string Query = "")
-    {
-        [JsonPropertyName("department")] public string[] Department { get; init; } = [];
-        [JsonPropertyName("location")]   public string[] Location   { get; init; } = [];
-        [JsonPropertyName("workplace")]  public string[] Workplace  { get; init; } = [];
-        [JsonPropertyName("worktype")]   public string[] Worktype   { get; init; } = [];
-    }
+    private record RecruiteeResponse(
+        [property: JsonPropertyName("offers")] List<RecruiteeOffer>? Offers);
 
-    private record WorkableJobsResponse(
-        [property: JsonPropertyName("total")] int Total,
-        [property: JsonPropertyName("results")] List<WorkableJob>? Results,
-        [property: JsonPropertyName("token")] string? Token);
-
-    private record WorkableJob(
-        [property: JsonPropertyName("shortcode")] string? Shortcode,
+    private record RecruiteeOffer(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("slug")] string? Slug,
         [property: JsonPropertyName("title")] string? Title,
-        [property: JsonPropertyName("department")] List<string>? Department,
-        [property: JsonPropertyName("location")] WorkableLocation? Location,
-        [property: JsonPropertyName("workplace")] string? Workplace,
+        [property: JsonPropertyName("department")] string? Department,
+        [property: JsonPropertyName("status")] string? Status,
+        [property: JsonPropertyName("location")] string? Location,
+        [property: JsonPropertyName("locations")] List<RecruiteeLocation>? Locations,
         [property: JsonPropertyName("remote")] bool? Remote,
-        [property: JsonPropertyName("type")] string? Type,
-        [property: JsonPropertyName("published")] DateTime? Published);
-
-    private record WorkableLocation(
-        [property: JsonPropertyName("city")] string? City,
-        [property: JsonPropertyName("countryCode")] string? CountryCode,
-        [property: JsonPropertyName("country")] string? Country,
-        [property: JsonPropertyName("region")] string? Region);
-
-    private record WorkableJobDetail(
+        [property: JsonPropertyName("hybrid")] bool? Hybrid,
         [property: JsonPropertyName("description")] string? Description,
         [property: JsonPropertyName("requirements")] string? Requirements,
-        [property: JsonPropertyName("benefits")] string? Benefits);
+        [property: JsonPropertyName("salary")] RecruiteeSalary? Salary,
+        [property: JsonPropertyName("careers_url")] string? CareersUrl,
+        [property: JsonPropertyName("careers_apply_url")] string? CareersApplyUrl,
+        [property: JsonPropertyName("published_at")] string? PublishedAt,
+        [property: JsonPropertyName("updated_at")] string? UpdatedAt,
+        [property: JsonPropertyName("employment_type_code")] string? EmploymentTypeCode,
+        [property: JsonPropertyName("country_code")] string? CountryCode);
+
+    private record RecruiteeLocation(
+        [property: JsonPropertyName("city")] string? City,
+        [property: JsonPropertyName("country")] string? Country,
+        [property: JsonPropertyName("country_code")] string? CountryCode,
+        [property: JsonPropertyName("state")] string? State,
+        [property: JsonPropertyName("state_code")] string? StateCode);
+
+    private record RecruiteeSalary(
+        [property: JsonPropertyName("min")] decimal? Min,
+        [property: JsonPropertyName("max")] decimal? Max,
+        [property: JsonPropertyName("currency")] string? Currency,
+        [property: JsonPropertyName("period")] string? Period);
 }

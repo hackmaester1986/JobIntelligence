@@ -23,6 +23,7 @@ public class CommonCrawlService(
         ["ashby"]            = "jobs.ashbyhq.com",
         ["smartrecruiters"]  = "careers.smartrecruiters.com",
         ["workday"]          = "*.myworkdayjobs.com",
+        ["recruitee"]        = "*.recruitee.com",
     };
 
     public async Task<CommonCrawlResult> DiscoverSlugsAsync(string? source = null, CancellationToken ct = default)
@@ -30,77 +31,139 @@ public class CommonCrawlService(
         if (source != null && !SourceDomains.ContainsKey(source))
             throw new ArgumentException($"Unknown source '{source}'. Valid values: {string.Join(", ", SourceDomains.Keys)}");
 
-        var indexes = await GetRecentIndexesAsync(1, ct);
+        var indexes = await GetRecentIndexesAsync(3, ct);
         logger.LogInformation("Using Common Crawl indexes: {Indexes}", string.Join(", ", indexes));
 
         var leverSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var greenhouseSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ashbySlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var smartRecruitersSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recruiteeSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Keyed by host so we only keep one career site per company host
         var workdayEntries = new Dictionary<string, WorkdayEntry>(StringComparer.OrdinalIgnoreCase);
 
         bool ShouldCrawl(string name) => source == null || source.Equals(name, StringComparison.OrdinalIgnoreCase);
 
+        // Try each index in order (newest first); stop per-source as soon as one succeeds.
+        // This handles the common case where the newest index CDX backend is overloaded.
         foreach (var indexId in indexes)
         {
-            if (ShouldCrawl("greenhouse"))
+            bool anySucceeded = false;
+
+            if (ShouldCrawl("greenhouse") && greenhouseSlugs.Count == 0)
             {
                 var gh1 = await QueryDomainAsync(indexId, "boards.greenhouse.io", ct);
-                foreach (var s in gh1) greenhouseSlugs.Add(s);
                 var gh2 = await QueryDomainAsync(indexId, "job-boards.greenhouse.io", ct);
-                foreach (var s in gh2) greenhouseSlugs.Add(s);
+                if (gh1.Count > 0 || gh2.Count > 0)
+                {
+                    foreach (var s in gh1) greenhouseSlugs.Add(s);
+                    foreach (var s in gh2) greenhouseSlugs.Add(s);
+                    anySucceeded = true;
+                    logger.LogInformation("CDX [greenhouse] succeeded on index {Index}: {Count} slugs", indexId, greenhouseSlugs.Count);
+                }
+                else
+                {
+                    logger.LogWarning("CDX [greenhouse] got 0 results from index {Index}, will try next", indexId);
+                }
             }
 
-            if (ShouldCrawl("lever"))
+            if (ShouldCrawl("lever") && leverSlugs.Count == 0)
             {
                 var lv = await QueryDomainAsync(indexId, "jobs.lever.co", ct);
-                foreach (var s in lv) leverSlugs.Add(s);
+                if (lv.Count > 0) { foreach (var s in lv) leverSlugs.Add(s); anySucceeded = true;
+                    logger.LogInformation("CDX [lever] succeeded on index {Index}: {Count} slugs", indexId, leverSlugs.Count); }
+                else logger.LogWarning("CDX [lever] got 0 results from index {Index}, will try next", indexId);
             }
 
-            if (ShouldCrawl("ashby"))
+            if (ShouldCrawl("ashby") && ashbySlugs.Count == 0)
             {
                 var ab = await QueryDomainAsync(indexId, "jobs.ashbyhq.com", ct);
-                foreach (var s in ab) ashbySlugs.Add(s);
+                if (ab.Count > 0) { foreach (var s in ab) ashbySlugs.Add(s); anySucceeded = true;
+                    logger.LogInformation("CDX [ashby] succeeded on index {Index}: {Count} slugs", indexId, ashbySlugs.Count); }
+                else logger.LogWarning("CDX [ashby] got 0 results from index {Index}, will try next", indexId);
             }
 
-            if (ShouldCrawl("smartrecruiters"))
+            if (ShouldCrawl("smartrecruiters") && smartRecruitersSlugs.Count == 0)
             {
                 var sr1 = await QueryDomainAsync(indexId, "careers.smartrecruiters.com", ct);
-                foreach (var s in sr1) smartRecruitersSlugs.Add(s);
                 var sr2 = await QueryDomainAsync(indexId, "jobs.smartrecruiters.com", ct);
-                foreach (var s in sr2) smartRecruitersSlugs.Add(s);
+                if (sr1.Count > 0 || sr2.Count > 0)
+                {
+                    foreach (var s in sr1) smartRecruitersSlugs.Add(s);
+                    foreach (var s in sr2) smartRecruitersSlugs.Add(s);
+                    anySucceeded = true;
+                    logger.LogInformation("CDX [smartrecruiters] succeeded on index {Index}: {Count} slugs", indexId, smartRecruitersSlugs.Count);
+                }
+                else logger.LogWarning("CDX [smartrecruiters] got 0 results from index {Index}, will try next", indexId);
             }
 
-            if (ShouldCrawl("workday"))
+            if (ShouldCrawl("workday") && workdayEntries.Count == 0)
             {
                 var wd = await QueryWorkdayAsync(indexId, ct);
-                foreach (var e in wd)
-                    workdayEntries.TryAdd(e.Host, e);
+                if (wd.Count > 0)
+                {
+                    foreach (var e in wd) workdayEntries.TryAdd(e.Host, e);
+                    anySucceeded = true;
+                    logger.LogInformation("CDX [workday] succeeded on index {Index}: {Count} tenants", indexId, workdayEntries.Count);
+                }
+                else logger.LogWarning("CDX [workday] got 0 results from index {Index}, will try next", indexId);
             }
+
+            if (ShouldCrawl("recruitee") && recruiteeSlugs.Count == 0)
+            {
+                var rc = await QueryRecruiteeAsync(indexId, ct);
+                if (rc.Count > 0)
+                {
+                    foreach (var s in rc) recruiteeSlugs.Add(s);
+                    anySucceeded = true;
+                    logger.LogInformation("CDX [recruitee] succeeded on index {Index}: {Count} slugs", indexId, recruiteeSlugs.Count);
+                }
+                else logger.LogWarning("CDX [recruitee] got 0 results from index {Index}, will try next", indexId);
+            }
+
+            // If nothing returned results from this index, it's likely overloaded — try next immediately
+            if (!anySucceeded)
+            {
+                logger.LogWarning("CDX index {Index} returned nothing for all requested sources, trying next index", indexId);
+                continue;
+            }
+
+            // If all requested sources have data, no need to try further indexes
+            bool allDone = (!ShouldCrawl("greenhouse") || greenhouseSlugs.Count > 0)
+                && (!ShouldCrawl("lever") || leverSlugs.Count > 0)
+                && (!ShouldCrawl("ashby") || ashbySlugs.Count > 0)
+                && (!ShouldCrawl("smartrecruiters") || smartRecruitersSlugs.Count > 0)
+                && (!ShouldCrawl("workday") || workdayEntries.Count > 0)
+                && (!ShouldCrawl("recruitee") || recruiteeSlugs.Count > 0);
+
+            if (allDone) break;
 
             await Task.Delay(10000, ct); // pause between indexes
         }
 
         logger.LogInformation(
-            "Common Crawl discovery complete: {G} Greenhouse, {L} Lever, {A} Ashby, {SR} SmartRecruiters, {WD} Workday",
+            "Common Crawl discovery complete: {G} Greenhouse, {L} Lever, {A} Ashby, {SR} SmartRecruiters, {WD} Workday, {RC} Recruitee",
             greenhouseSlugs.Count, leverSlugs.Count, ashbySlugs.Count,
-            smartRecruitersSlugs.Count, workdayEntries.Count);
+            smartRecruitersSlugs.Count, workdayEntries.Count, recruiteeSlugs.Count);
 
         return new CommonCrawlResult(
             [.. greenhouseSlugs], [.. leverSlugs], [.. ashbySlugs],
-            [.. smartRecruitersSlugs], [.. workdayEntries.Values]);
+            [.. smartRecruitersSlugs], [.. workdayEntries.Values], [.. recruiteeSlugs]);
     }
 
     private async Task<List<string>> GetRecentIndexesAsync(int count, CancellationToken ct)
     {
         var client = httpClientFactory.CreateClient("CommonCrawl");
+        logger.LogInformation("Fetching Common Crawl collinfo.json");
         var json = await client.GetStringAsync("collinfo.json", ct);
         using var doc = JsonDocument.Parse(json);
         // collinfo.json is sorted newest first
-        return [.. doc.RootElement.EnumerateArray()
+        var indexes = doc.RootElement.EnumerateArray()
             .Take(count)
-            .Select(e => e.GetProperty("id").GetString()!)];
+            .Select(e => e.GetProperty("id").GetString()!)
+            .ToList();
+        logger.LogInformation("Common Crawl indexes selected: {Indexes}", string.Join(", ", indexes));
+        return indexes;
     }
 
     private async Task<List<string>> QueryDomainAsync(
@@ -256,10 +319,71 @@ public class CommonCrawlService(
         return new WorkdayEntry(host, careerSite);
     }
 
+    // Recruitee: job boards live on subdomains ({slug}.recruitee.com), so we query the
+    // wildcard domain and extract the subdomain as the slug (same pattern as Workday).
+    private async Task<List<string>> QueryRecruiteeAsync(string indexId, CancellationToken ct)
+    {
+        var client = httpClientFactory.CreateClient("CommonCrawl");
+        var slugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        const string baseQuery = "url=*.recruitee.com&output=json&fl=url";
+
+        var numPagesText = await FetchWithRetryAsync(client,
+            $"{indexId}-index?{baseQuery}&showNumPages=true", "recruitee.com", -1, ct);
+        if (numPagesText == null) return [.. slugs];
+
+        int totalPages = 1;
+        try
+        {
+            using var meta = JsonDocument.Parse(numPagesText.Trim());
+            if (meta.RootElement.TryGetProperty("pages", out var p))
+                totalPages = p.GetInt32();
+        }
+        catch { }
+
+        logger.LogInformation("CDX [Recruitee] {Index}: {Total} pages", indexId, totalPages);
+
+        for (int page = 0; page < totalPages; page++)
+        {
+            var responseText = await FetchWithRetryAsync(client,
+                $"{indexId}-index?{baseQuery}&page={page}", "recruitee.com", page, ct);
+            if (responseText == null) break;
+
+            foreach (var line in responseText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (!doc.RootElement.TryGetProperty("url", out var urlProp)) continue;
+                    var rawUrl = urlProp.GetString();
+                    if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri)) continue;
+
+                    var host = uri.Host.ToLowerInvariant();
+                    if (!host.EndsWith(".recruitee.com", StringComparison.OrdinalIgnoreCase)) continue;
+                    var slug = host[..host.IndexOf(".recruitee.com", StringComparison.OrdinalIgnoreCase)];
+                    if (string.IsNullOrEmpty(slug) || slug == "www" || slug == "api" || slug == "cdn") continue;
+                    if (slug.Length < 2 || IgnoredSlugs.Contains(slug)) continue;
+
+                    slugs.Add(slug);
+                }
+                catch { }
+            }
+
+            logger.LogInformation("CDX [Recruitee] {Index}: page {Page}/{Total}, {Count} unique slugs",
+                indexId, page + 1, totalPages, slugs.Count);
+
+            if (page < totalPages - 1)
+                await Task.Delay(5000, ct);
+        }
+
+        return [.. slugs];
+    }
+
     private async Task<string?> FetchWithRetryAsync(
         HttpClient client, string url, string domain, int page, CancellationToken ct)
     {
-        int[] backoff = [3000, 6000, 12000];
+        int[] backoff = [15000, 30000, 60000];
+        logger.LogInformation("CDX fetch: {Url}", url);
         for (int attempt = 0; attempt <= backoff.Length; attempt++)
         {
             try
@@ -269,21 +393,23 @@ public class CommonCrawlService(
                     return await response.Content.ReadAsStringAsync(ct);
 
                 var status = (int)response.StatusCode;
-                if ((status == 504 || status == 429) && attempt < backoff.Length)
+                var body = await response.Content.ReadAsStringAsync(ct);
+                if ((status == 429 || status == 500 || status == 502 || status == 503 || status == 504) && attempt < backoff.Length)
                 {
-                    logger.LogWarning("CDX API {Status} for {Domain} page {Page}, retrying in {Delay}ms",
-                        status, domain, page, backoff[attempt]);
+                    logger.LogWarning("CDX API {Status} for {Domain} page {Page} (attempt {A}), retrying in {Delay}ms. Body: {Body}",
+                        status, domain, page, attempt + 1, backoff[attempt], body[..Math.Min(200, body.Length)]);
                     await Task.Delay(backoff[attempt], ct);
                     continue;
                 }
 
-                logger.LogWarning("CDX API returned {Status} for {Domain} page {Page}", status, domain, page);
+                logger.LogWarning("CDX API returned {Status} for {Domain} page {Page}. Body: {Body}",
+                    status, domain, page, body[..Math.Min(500, body.Length)]);
                 return null;
             }
             catch (Exception ex) when (attempt < backoff.Length)
             {
-                logger.LogWarning(ex, "CDX API request failed for {Domain} page {Page}, retrying in {Delay}ms",
-                    domain, page, backoff[attempt]);
+                logger.LogWarning(ex, "CDX API request failed for {Domain} page {Page} (attempt {A}), retrying in {Delay}ms",
+                    domain, page, attempt + 1, backoff[attempt]);
                 await Task.Delay(backoff[attempt], ct);
             }
             catch (Exception ex)

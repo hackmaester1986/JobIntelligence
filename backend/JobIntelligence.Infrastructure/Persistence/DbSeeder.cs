@@ -20,7 +20,8 @@ public static class DbSeeder
             new() { Name = "greenhouse", BaseUrl = "https://boards-api.greenhouse.io/", ApiVersion = "v1", IsActive = true, RateLimitRps = 5 },
             new() { Name = "lever", BaseUrl = "https://api.lever.co/", ApiVersion = "v0", IsActive = true, RateLimitRps = 5 },
             new() { Name = "ashby", BaseUrl = "https://api.ashbyhq.com/", ApiVersion = "v1", IsActive = true, RateLimitRps = 5 },
-            new() { Name = "smartrecruiters", BaseUrl = "https://api.smartrecruiters.com/", ApiVersion = "v1", IsActive = true, RateLimitRps = 5 }
+            new() { Name = "smartrecruiters", BaseUrl = "https://api.smartrecruiters.com/", ApiVersion = "v1", IsActive = true, RateLimitRps = 5 },
+            new() { Name = "recruitee", BaseUrl = "https://recruitee.com/", ApiVersion = "v1", IsActive = true, RateLimitRps = 5 }
         };
 
         var existing = await db.JobSources.Select(s => s.Name).ToHashSetAsync();

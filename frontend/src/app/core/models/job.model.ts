@@ -11,6 +11,7 @@ export interface Job {
   firstSeenAt: string;
   authenticityScore?: number;
   authenticityLabel?: string;
+  distanceMiles?: number;
   source?: { name: string };
   company?: { id: number; canonicalName: string; logoUrl?: string; industry?: string };
   companyId?: number;
@@ -41,6 +42,9 @@ export interface JobFilters {
   seniority?: string;
   department?: string;
   industries?: string[];
+  lat?: number;
+  lng?: number;
+  radiusMiles?: number;
   page?: number;
   pageSize?: number;
 }

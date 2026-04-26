@@ -25,6 +25,8 @@ public class JobPosting
     public bool IsHybrid { get; set; }
     public bool IsRemoteInDescription { get; set; }
     public bool? IsUsPosting { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
 
     // Requirements
     public int? YearsExperienceMin { get; set; }

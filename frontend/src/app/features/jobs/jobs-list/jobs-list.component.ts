@@ -1,12 +1,13 @@
 import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { DecimalPipe, NgFor, NgIf } from '@angular/common';
+import { DecimalPipe, NgFor, NgIf, NgSwitch, NgSwitchCase } from '@angular/common';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { MatCardModule } from '@angular/material/card';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { Subject, Subscription } from 'rxjs';
@@ -19,9 +20,9 @@ import { LocationFilterService } from '../../../core/services/location-filter.se
   selector: 'app-jobs-list',
   standalone: true,
   imports: [
-    RouterLink, FormsModule, NgFor, NgIf, DecimalPipe,
+    RouterLink, FormsModule, NgFor, NgIf, NgSwitch, NgSwitchCase, DecimalPipe,
     MatCardModule, MatInputModule, MatButtonModule,
-    MatFormFieldModule, MatProgressSpinnerModule,
+    MatFormFieldModule, MatSelectModule, MatProgressSpinnerModule,
     MatPaginatorModule
   ],
   templateUrl: './jobs-list.component.html',
@@ -29,24 +30,43 @@ import { LocationFilterService } from '../../../core/services/location-filter.se
 })
 export class JobsListComponent implements OnInit, OnDestroy {
   private jobsService = inject(JobsService);
-  private locationFilter = inject(LocationFilterService);
+  locationFilter = inject(LocationFilterService);
   private searchSubject = new Subject<void>();
   private loadSubject = new Subject<void>();
   private searchSub!: Subscription;
   private loadSub!: Subscription;
   private locationSub!: Subscription;
+  private geoSub!: Subscription;
+  private radiusSub!: Subscription;
 
   result = signal<PagedResult<Job> | null>(null);
   loading = signal(true);
+  proximityMode = signal(false);
 
   filters: JobFilters = { page: 1, pageSize: 20 };
   titleQ = '';
   skillQ = '';
 
+  readonly radiusOptions = [10, 25, 50, 100, 200];
+
   constructor() {
     this.locationSub = toObservable(this.locationFilter.usOnly).pipe(skip(1)).subscribe(() => {
       this.filters = { ...this.filters, page: 1 };
       this.loadSubject.next();
+    });
+
+    this.geoSub = toObservable(this.locationFilter.geoState).pipe(skip(1)).subscribe(state => {
+      if (state.status === 'granted' || state.status === 'idle') {
+        this.filters = { ...this.filters, page: 1 };
+        this.loadSubject.next();
+      }
+    });
+
+    this.radiusSub = toObservable(this.locationFilter.radiusMiles).pipe(skip(1), debounceTime(300)).subscribe(() => {
+      if (this.locationFilter.hasCoords()) {
+        this.filters = { ...this.filters, page: 1 };
+        this.loadSubject.next();
+      }
     });
   }
 
@@ -70,15 +90,25 @@ export class JobsListComponent implements OnInit, OnDestroy {
     this.loadSub = this.loadSubject.pipe(
       switchMap(() => {
         this.loading.set(true);
+        const geo = this.locationFilter.geoState();
+        const proximityParams = geo.status === 'granted'
+          ? { lat: geo.lat, lng: geo.lng, radiusMiles: this.locationFilter.radiusMiles() }
+          : {};
+
         return this.jobsService.getJobs({
           ...this.filters,
           q: this.titleQ || undefined,
           skill: this.skillQ || undefined,
-          isUs: this.locationFilter.usOnly() ? true : undefined
+          isUs: this.locationFilter.usOnly() ? true : undefined,
+          ...proximityParams
         });
       })
     ).subscribe({
-      next: r => { this.result.set(r); this.loading.set(false); },
+      next: r => {
+        this.result.set(r);
+        this.proximityMode.set(r.proximityMode ?? false);
+        this.loading.set(false);
+      },
       error: () => this.loading.set(false)
     });
 
@@ -89,6 +119,8 @@ export class JobsListComponent implements OnInit, OnDestroy {
     this.searchSub.unsubscribe();
     this.loadSub.unsubscribe();
     this.locationSub.unsubscribe();
+    this.geoSub.unsubscribe();
+    this.radiusSub.unsubscribe();
     localStorage.setItem('jobsState', JSON.stringify({
       titleQ: this.titleQ,
       skillQ: this.skillQ,
@@ -103,6 +135,15 @@ export class JobsListComponent implements OnInit, OnDestroy {
     this.loadSubject.next();
   }
 
+  onProximityToggle(): void {
+    const status = this.locationFilter.geoState().status;
+    if (status === 'idle') {
+      this.locationFilter.requestGeolocation();
+    } else {
+      this.locationFilter.clearGeolocation();
+    }
+  }
+
   timeAgo(dateStr: string): string {
     const diff = Date.now() - new Date(dateStr).getTime();
     const days = Math.floor(diff / 86_400_000);
@@ -112,5 +153,4 @@ export class JobsListComponent implements OnInit, OnDestroy {
     const months = Math.floor(days / 30);
     return months === 1 ? '1 month ago' : `${months} months ago`;
   }
-
 }

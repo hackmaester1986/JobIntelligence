@@ -28,6 +28,8 @@ public class JobPostingConfiguration : IEntityTypeConfiguration<JobPosting>
         builder.Property(x => x.IsRemote).HasColumnName("is_remote").HasDefaultValue(false);
         builder.Property(x => x.IsHybrid).HasColumnName("is_hybrid").HasDefaultValue(false);
         builder.Property(x => x.IsUsPosting).HasColumnName("is_us_posting");
+        builder.Property(x => x.Latitude).HasColumnName("latitude");
+        builder.Property(x => x.Longitude).HasColumnName("longitude");
 
         builder.Property(x => x.SalaryMin).HasColumnName("salary_min").HasPrecision(12, 2);
         builder.Property(x => x.SalaryMax).HasColumnName("salary_max").HasPrecision(12, 2);
@@ -68,6 +70,9 @@ public class JobPostingConfiguration : IEntityTypeConfiguration<JobPosting>
         builder.HasIndex(x => new { x.AuthenticityLabel, x.PostedAt });
         builder.HasIndex(x => new { x.CompanyId, x.DescriptionHash });
         builder.HasIndex(x => x.PreviousPostingId);
+        builder.HasIndex(x => new { x.Latitude, x.Longitude })
+            .HasFilter("latitude IS NOT NULL")
+            .HasDatabaseName("IX_job_postings_geo");
 
         // Partial indexes for dashboard stats query (WHERE is_active = true)
         // Covers counts/seniority/departments CTEs that all filter by company_id + is_active

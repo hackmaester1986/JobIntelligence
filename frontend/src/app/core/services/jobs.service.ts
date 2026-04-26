@@ -7,6 +7,7 @@ export interface PagedResult<T> {
   total: number;
   page: number;
   pageSize: number;
+  proximityMode?: boolean;
   data: T[];
 }
 

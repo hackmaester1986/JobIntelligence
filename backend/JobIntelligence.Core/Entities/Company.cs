@@ -11,6 +11,7 @@ public class Company
     public string? AshbyBoardSlug { get; set; }
     public string? WorkableSlug { get; set; }
     public string? SmartRecruitersSlug { get; set; }
+    public string? RecruiteeSlug { get; set; }
     public string? WorkdayHost { get; set; }
     public string? WorkdayCareerSite { get; set; }
     public string? Industry { get; set; }

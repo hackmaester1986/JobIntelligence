@@ -7,11 +7,33 @@
     <mat-label>Skill</mat-label>
     <input matInput [(ngModel)]="skillQ" (ngModelChange)="onSearchInput()" placeholder="e.g. Python, React…">
   </mat-form-field>
+  <button mat-stroked-button
+    [class.active]="locationFilter.hasCoords()"
+    [disabled]="locationFilter.geoState().status === 'requesting'"
+    [title]="locationFilter.geoState().status === 'denied' ? 'Location access was denied. To enable, click the lock icon in your browser\'s address bar and allow location access.' : locationFilter.geoState().status === 'unavailable' ? 'Location is not available on this device.' : ''"
+    (click)="onProximityToggle()">
+    <ng-container [ngSwitch]="locationFilter.geoState().status">
+      <span *ngSwitchCase="'idle'">Near Me</span>
+      <span *ngSwitchCase="'requesting'">Locating…</span>
+      <span *ngSwitchCase="'granted'">✕ Within {{ locationFilter.radiusMiles() }} mi</span>
+      <span *ngSwitchCase="'denied'">Location Denied</span>
+      <span *ngSwitchCase="'unavailable'">Location Unavailable</span>
+    </ng-container>
+  </button>
+  <mat-form-field appearance="outline" style="width: 110px" *ngIf="locationFilter.hasCoords()">
+    <mat-label>Radius</mat-label>
+    <mat-select [value]="locationFilter.radiusMiles()" (valueChange)="locationFilter.radiusMiles.set($event)">
+      <mat-option *ngFor="let r of radiusOptions" [value]="r">{{ r }} mi</mat-option>
+    </mat-select>
+  </mat-form-field>
 </div>
 
 <div class="layout">
   <div class="main-content">
-    <p class="total" *ngIf="result() as r">{{ r.total | number }} jobs found</p>
+    <p class="total" *ngIf="result() as r">
+      {{ r.total | number }} jobs found
+      <span *ngIf="proximityMode()" class="proximity-label"> · Sorted by distance from your location</span>
+    </p>
 
     <div *ngIf="loading()" style="display: flex; justify-content: center; padding: 48px">
       <mat-spinner></mat-spinner>
@@ -31,6 +53,7 @@
             <div class="footer-left">
               <p class="meta" style="margin:0">{{ timeAgo(job.firstSeenAt) }}</p>
               <div class="chips">
+                <span *ngIf="job.distanceMiles != null" class="chip distance">{{ job.distanceMiles | number:'1.0-1' }} mi</span>
                 <span *ngIf="job.isRemote" class="chip remote">Remote</span>
                 <span *ngIf="job.isHybrid" class="chip hybrid">Hybrid</span>
                 <span *ngIf="!job.isRemote && job.isRemoteInDescription" class="chip possibly-remote">Possibly Remote</span>

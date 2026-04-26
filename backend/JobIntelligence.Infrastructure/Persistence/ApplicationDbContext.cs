@@ -20,6 +20,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<JobEmbedding> JobEmbeddings => Set<JobEmbedding>();
     public DbSet<Resume> Resumes => Set<Resume>();
     public DbSet<ResumeEmbedding> ResumeEmbeddings => Set<ResumeEmbedding>();
+    public DbSet<GeocodeCache> GeocodeCaches => Set<GeocodeCache>();
+    public DbSet<GeonamesCity> GeonamesCities => Set<GeonamesCity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -92,6 +92,7 @@ public static class DependencyInjection
         services.AddScoped<IJobCollector, AshbyCollector>();
         services.AddScoped<IJobCollector, SmartRecruitersCollector>();
         services.AddScoped<IJobCollector, WorkdayCollector>();
+        services.AddScoped<IJobCollector, RecruiteeCollector>();
         services.AddScoped<ICollectionOrchestrator, CollectionOrchestrator>();
         services.AddScoped<ICompanyDiscoveryService, CompanyDiscoveryService>();
 
@@ -115,11 +116,17 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
+        services.AddHttpClient("Recruitee", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
         services.AddHttpClient("CommonCrawl", client =>
         {
             client.BaseAddress = new Uri("https://index.commoncrawl.org/");
             client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0 (research; contact via github)");
-            client.Timeout = TimeSpan.FromSeconds(60);
+            client.Timeout = TimeSpan.FromSeconds(180);
         });
 
         services.AddScoped<ICommonCrawlService, CommonCrawlService>();
@@ -150,6 +157,8 @@ public static class DependencyInjection
 
         services.AddScoped<IJobEmbeddingService, JobEmbeddingService>();
         services.AddScoped<IResumeService, ResumeService>();
+
+        services.AddScoped<IGeocodingService, GeocodingService>();
 
 
         var apiKey = configuration["Anthropic:ApiKey"] ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");

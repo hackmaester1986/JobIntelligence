@@ -4,6 +4,7 @@ using System.Text.Json;
 using JobIntelligence.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace JobIntelligence.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260423211354_AddGeocoding")]
+    partial class AddGeocoding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -233,9 +236,6 @@ namespace JobIntelligence.Infrastructure.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)")
                         .HasColumnName("normalized_name");
-
-                    b.Property<string>("RecruiteeSlug")
-                        .HasColumnType("text");
 
                     b.Property<int>("RemoteJobCount")
                         .ValueGeneratedOnAdd()
@@ -481,55 +481,6 @@ namespace JobIntelligence.Infrastructure.Migrations
                         .HasDatabaseName("IX_geocode_cache_location");
 
                     b.ToTable("geocode_cache", (string)null);
-                });
-
-            modelBuilder.Entity("JobIntelligence.Core.Entities.GeonamesCity", b =>
-                {
-                    b.Property<long>("GeonameId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("geoname_id");
-
-                    b.Property<string>("Admin1Code")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("admin1_code");
-
-                    b.Property<string>("AsciiName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("ascii_name");
-
-                    b.Property<string>("CountryCode")
-                        .IsRequired()
-                        .HasMaxLength(2)
-                        .HasColumnType("character varying(2)")
-                        .HasColumnName("country_code");
-
-                    b.Property<double>("Latitude")
-                        .HasColumnType("double precision")
-                        .HasColumnName("latitude");
-
-                    b.Property<double>("Longitude")
-                        .HasColumnType("double precision")
-                        .HasColumnName("longitude");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<long>("Population")
-                        .HasColumnType("bigint")
-                        .HasColumnName("population");
-
-                    b.HasKey("GeonameId");
-
-                    b.HasIndex("AsciiName", "Admin1Code", "CountryCode")
-                        .HasDatabaseName("IX_geonames_cities_lookup");
-
-                    b.ToTable("geonames_cities", (string)null);
                 });
 
             modelBuilder.Entity("JobIntelligence.Core.Entities.JobEmbedding", b =>

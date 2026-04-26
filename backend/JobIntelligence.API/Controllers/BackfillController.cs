@@ -542,7 +542,13 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         foreach (var chunk in postings.Chunk(chunkSize))
         {
             var combinedText = string.Join("\n\n---\n\n", chunk.Select((p, i) =>
-                $"Job {i + 1} - {p.Title}:\n{(p.Description!.Length > 2000 ? p.Description[..2000] : p.Description)}"));
+            {
+                var text = System.Text.RegularExpressions.Regex.Replace(p.Description!, "<[^>]+>", " ")
+                    .Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
+                    .Replace("&nbsp;", " ").Replace("&quot;", "\"").Trim();
+                text = System.Text.RegularExpressions.Regex.Replace(text, @"\s{2,}", " ");
+                return $"Job {i + 1} - {p.Title}:\n{(text.Length > 2000 ? text[..2000] : text)}";
+            }));
 
             var prompt = $$"""
                 From these {{chunk.Length}} job postings, extract only concrete hard technical skills — things a candidate would list on a resume as a specific technology they know.
@@ -949,7 +955,7 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
 
         var result = await discovery.DiscoverFromSlugsAsync(
-            slugs, [], [], [], [], dryRun, ct);
+            slugs, [], [], [], [], [], dryRun, ct);
 
         return Ok(new
         {
@@ -1009,7 +1015,7 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
 
         var result = await discovery.DiscoverFromSlugsAsync(
-            [], [], [], slugs, [], dryRun, ct);
+            [], [], [], slugs, [], [], dryRun, ct);
 
         return Ok(new
         {
@@ -1069,7 +1075,7 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
         var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
 
         var result = await discovery.DiscoverFromSlugsAsync(
-            [], [], [], [], entries, dryRun, ct);
+            [], [], [], [], entries, [], dryRun, ct);
 
         return Ok(new
         {
@@ -1081,5 +1087,248 @@ public class BackfillController(IServiceScopeFactory scopeFactory, ILogger<Backf
             dryRun,
             added = dryRun ? (object)"(dry run — nothing imported)" : result.AddedCompanies
         });
+    }
+
+    [HttpPost("seed-geonames")]
+    public IActionResult SeedGeonames()
+    {
+        logger.LogInformation("GeoNames seed triggered");
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var existing = await db.GeonamesCities.AnyAsync();
+            if (existing)
+            {
+                logger.LogInformation("GeoNames seed skipped — table already populated");
+                return;
+            }
+
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+            http.Timeout = TimeSpan.FromMinutes(5);
+
+            logger.LogInformation("GeoNames seed: downloading cities500.zip...");
+            var zipBytes = await http.GetByteArrayAsync("https://download.geonames.org/export/dump/cities500.zip");
+
+            logger.LogInformation("GeoNames seed: parsing...");
+            var cities = new List<Core.Entities.GeonamesCity>();
+
+            using var ms = new System.IO.MemoryStream(zipBytes);
+            using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+            var entry = zip.GetEntry("cities500.txt") ?? zip.Entries[0];
+            using var reader = new System.IO.StreamReader(entry.Open());
+
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
+            {
+                var cols = line.Split('\t');
+                if (cols.Length < 16) continue;
+                if (!long.TryParse(cols[0], out var id)) continue;
+                if (!double.TryParse(cols[4], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lat)) continue;
+                if (!double.TryParse(cols[5], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lng)) continue;
+                if (!long.TryParse(cols[14], out var pop)) pop = 0;
+
+                cities.Add(new Core.Entities.GeonamesCity
+                {
+                    GeonameId = id,
+                    Name = cols[1],
+                    AsciiName = cols[2],
+                    Latitude = lat,
+                    Longitude = lng,
+                    CountryCode = cols[8],
+                    Admin1Code = string.IsNullOrEmpty(cols[10]) ? null : cols[10],
+                    Population = pop,
+                });
+            }
+
+            logger.LogInformation("GeoNames seed: inserting {Count} cities in batches...", cities.Count);
+            const int batchSize = 5000;
+            for (int i = 0; i < cities.Count; i += batchSize)
+            {
+                db.GeonamesCities.AddRange(cities.Skip(i).Take(batchSize));
+                await db.SaveChangesAsync();
+                db.ChangeTracker.Clear();
+                logger.LogInformation("GeoNames seed: {Done}/{Total}", Math.Min(i + batchSize, cities.Count), cities.Count);
+            }
+
+            logger.LogInformation("GeoNames seed complete: {Total} cities inserted", cities.Count);
+        });
+
+        return Accepted(new { message = "GeoNames seed started" });
+    }
+
+    [HttpPost("reparse-locations")]
+    public IActionResult ReparseLocations()
+    {
+        logger.LogInformation("Location reparse backfill triggered");
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            int updated = 0;
+            long lastId = 0;
+
+            while (true)
+            {
+                var batch = await db.JobPostings
+                    .Where(p => p.IsActive && p.Id > lastId && p.LocationRaw != null)
+                    .OrderBy(p => p.Id)
+                    .Take(1000)
+                    .Select(p => new { p.Id, p.LocationRaw })
+                    .ToListAsync();
+
+                if (batch.Count == 0) break;
+
+                var ids = batch.Select(p => p.Id).ToList();
+                var postings = await db.JobPostings.Where(p => ids.Contains(p.Id)).ToListAsync();
+
+                foreach (var posting in postings)
+                {
+                    var loc = LocationParser.Parse(posting.LocationRaw);
+
+                    if (loc.City?.Length > 100 || loc.State?.Length > 100 || loc.Country?.Length > 100)
+                    {
+                        logger.LogWarning(
+                            "Location reparse overflow — id={Id} raw={Raw} city={City} state={State} country={Country}",
+                            posting.Id, posting.LocationRaw, loc.City, loc.State, loc.Country);
+                        await Task.Delay(10_000);
+                    }
+
+                    posting.LocationCity = loc.City?.Length > 100 ? null : loc.City;
+                    posting.LocationState = loc.State?.Length > 100 ? null : loc.State;
+                    posting.LocationCountry = loc.Country?.Length > 100 ? null : loc.Country;
+                    posting.IsUsPosting = UsLocationClassifier.Classify(posting.LocationRaw);
+                    updated++;
+                }
+
+                await db.SaveChangesAsync();
+                lastId = batch[^1].Id;
+                logger.LogInformation("Location reparse: {Count} rows processed", updated);
+            }
+
+            logger.LogInformation("Location reparse complete: {Total} rows updated", updated);
+        });
+
+        return Accepted(new { message = "Location reparse backfill started" });
+    }
+
+    [HttpPost("import-recruitee-urls")]
+    public async Task<IActionResult> ImportRecruiteeUrls(
+        [FromBody] List<string> urls,
+        [FromQuery] bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        if (urls is not { Count: > 0 })
+            return BadRequest(new { error = "No URLs provided" });
+
+        var slugs = new List<string>();
+        var unparseable = new List<string>();
+
+        foreach (var raw in urls)
+        {
+            var url = raw.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                !uri.Host.EndsWith(".recruitee.com", StringComparison.OrdinalIgnoreCase))
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            var slug = uri.Host[..uri.Host.IndexOf(".recruitee.com", StringComparison.OrdinalIgnoreCase)];
+            if (string.IsNullOrEmpty(slug) || slug == "www")
+            {
+                unparseable.Add(url);
+                continue;
+            }
+
+            if (!slugs.Contains(slug, StringComparer.OrdinalIgnoreCase))
+                slugs.Add(slug);
+        }
+
+        logger.LogInformation(
+            "import-recruitee-urls: parsed {Valid} slugs, {Bad} unparseable (dryRun={DryRun})",
+            slugs.Count, unparseable.Count, dryRun);
+
+        using var scope = scopeFactory.CreateScope();
+        var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
+
+        var result = await discovery.DiscoverFromSlugsAsync(
+            [], [], [], [], [], slugs, dryRun, ct);
+
+        return Ok(new
+        {
+            parsed = slugs.Count,
+            unparseable,
+            validated = result.ValidatedPerSource.GetValueOrDefault("Recruitee"),
+            skipped = result.Skipped,
+            failed = result.Failed,
+            dryRun,
+            added = dryRun ? (object)"(dry run — nothing imported)" : result.AddedCompanies
+        });
+    }
+
+    [HttpPost("dashboard-snapshots")]
+    public async Task<IActionResult> RefreshDashboardSnapshots(CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<ICollectionOrchestrator>();
+        await orchestrator.WriteDashboardSnapshotsAsync(ct);
+        return Ok(new { message = "Dashboard snapshots written" });
+    }
+
+    [HttpPost("geocode-locations")]
+    public IActionResult GeocodeLocations([FromQuery] int batchSize = 500)
+    {
+        logger.LogInformation("Geocode backfill triggered for batch of {BatchSize}", batchSize);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var geocoder = scope.ServiceProvider.GetRequiredService<IGeocodingService>();
+
+            await geocoder.WarmCacheAsync(CancellationToken.None);
+
+            var postings = await db.JobPostings
+                .Where(p => p.IsActive && !p.IsRemote && p.Latitude == null
+                            && (p.LocationCity != null || p.LocationState != null || p.LocationRaw != null))
+                .Select(p => new { p.Id, p.LocationCity, p.LocationState, p.LocationCountry, p.LocationRaw })
+                .OrderBy(p => p.Id)
+                .Take(batchSize)
+                .ToListAsync();
+
+            logger.LogInformation("Geocode backfill: {Count} postings to process", postings.Count);
+
+            int geocoded = 0, skipped = 0;
+            foreach (var posting in postings)
+            {
+                var coords = await geocoder.GeocodeAsync(
+                    posting.LocationCity, posting.LocationState, posting.LocationCountry, posting.LocationRaw,
+                    CancellationToken.None);
+
+                if (coords.HasValue)
+                {
+                    await db.JobPostings
+                        .Where(j => j.Id == posting.Id)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(j => j.Latitude, coords.Value.Lat)
+                            .SetProperty(j => j.Longitude, coords.Value.Lng));
+                    geocoded++;
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+
+            logger.LogInformation("Geocode backfill complete: geocoded={G} skipped={S}", geocoded, skipped);
+        });
+
+        return Accepted(new { message = $"Geocode backfill started for batch of {batchSize}" });
     }
 }
