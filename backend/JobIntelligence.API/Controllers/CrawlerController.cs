@@ -15,7 +15,7 @@ namespace JobIntelligence.API.Controllers;
 [AdminKey]
 public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<CrawlerController> logger) : ControllerBase
 {
-    private static readonly string[] ValidSources = ["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "recruitee"];
+    private static readonly string[] ValidSources = ["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "recruitee", "rippling"];
 
     public record SlugDiscoveryRequest(
         List<string>? AshbyUrls,
@@ -47,17 +47,19 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
                 // Step 1: Discover slugs from Common Crawl index
                 var crawlResult = await crawler.DiscoverSlugsAsync(source, CancellationToken.None);
                 logger.LogInformation(
-                    "Common Crawl found {G} Greenhouse, {L} Lever, {A} Ashby, {SR} SmartRecruiters, {WD} Workday, {RC} Recruitee slugs",
+                    "Common Crawl found {G} Greenhouse, {L} Lever, {A} Ashby, {SR} SmartRecruiters, {WD} Workday, {RC} Recruitee, {RP} Rippling slugs",
                     crawlResult.GreenhouseSlugs.Count, crawlResult.LeverSlugs.Count, crawlResult.AshbySlugs.Count,
-                    crawlResult.SmartRecruitersSlugs.Count, crawlResult.WorkdayEntries.Count, crawlResult.RecruiteeSlugs.Count);
+                    crawlResult.SmartRecruitersSlugs.Count, crawlResult.WorkdayEntries.Count, crawlResult.RecruiteeSlugs.Count,
+                    crawlResult.RipplingSlugs.Count);
 
                 // Step 2: Validate each slug against live APIs and optionally import
                 var result = await discovery.DiscoverFromSlugsAsync(
                     crawlResult.GreenhouseSlugs, crawlResult.LeverSlugs, crawlResult.AshbySlugs,
                     crawlResult.SmartRecruitersSlugs, crawlResult.WorkdayEntries,
-                    crawlResult.RecruiteeSlugs, dryRun, CancellationToken.None);
+                    crawlResult.RecruiteeSlugs, dryRun, CancellationToken.None,
+                    crawlResult.RipplingSlugs);
 
-                var sources = new[] { "Greenhouse", "Lever", "Ashby", "SmartRecruiters", "Workday", "Recruitee" };
+                var sources = new[] { "Greenhouse", "Lever", "Ashby", "SmartRecruiters", "Workday", "Recruitee", "Rippling" };
                 foreach (var s in sources)
                 {
                     var v = result.ValidatedPerSource.GetValueOrDefault(s);
@@ -75,6 +77,150 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         });
 
         return Accepted(new { message = $"Common Crawl discovery started for {label}", dryRun });
+    }
+
+    [HttpPost("url-import")]
+    public IActionResult ImportFromUrls([FromBody] List<string> urls, [FromQuery] bool dryRun = false)
+    {
+        if (urls == null || urls.Count == 0)
+            return BadRequest(new { error = "No URLs provided." });
+
+        var categorized = CategorizeUrls(urls);
+        var total = categorized.Values.Sum(v => v is List<string> l ? l.Count : ((List<WorkdayEntry>)v).Count);
+
+        if (total == 0)
+            return BadRequest(new { error = "No recognizable ATS URLs found. Supported: Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Recruitee, Rippling." });
+
+        var preview = categorized.ToDictionary(
+            kv => kv.Key,
+            kv => kv.Value is List<WorkdayEntry> wd
+                ? (object)wd.Select(e => $"{e.Host}/{e.CareerSite}").ToList()
+                : kv.Value);
+
+        logger.LogInformation("URL import triggered: {Total} URLs categorized across {Sources} sources (dryRun={D})",
+            total, categorized.Count, dryRun);
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var discovery = scope.ServiceProvider.GetRequiredService<ICompanyDiscoveryService>();
+            try
+            {
+                var gh = categorized.GetValueOrDefault("greenhouse") as List<string> ?? [];
+                var lv = categorized.GetValueOrDefault("lever") as List<string> ?? [];
+                var ab = categorized.GetValueOrDefault("ashby") as List<string> ?? [];
+                var sr = categorized.GetValueOrDefault("smartrecruiters") as List<string> ?? [];
+                var wd = categorized.GetValueOrDefault("workday") as List<WorkdayEntry> ?? [];
+                var rc = categorized.GetValueOrDefault("recruitee") as List<string> ?? [];
+                var rp = categorized.GetValueOrDefault("rippling") as List<string> ?? [];
+
+                var result = await discovery.DiscoverFromSlugsAsync(gh, lv, ab, sr, wd, rc, dryRun, CancellationToken.None, rp);
+
+                logger.LogInformation("URL import complete (dryRun={D}): added={A} skipped={S} failed={F}",
+                    dryRun, result.Added, result.Skipped, result.Failed);
+                foreach (var kvp in result.ValidatedPerSource)
+                    logger.LogInformation("  {Source}: validated={V} failed={F}", kvp.Key, kvp.Value,
+                        result.FailedPerSource.GetValueOrDefault(kvp.Key));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "URL import failed");
+            }
+        });
+
+        return Accepted(new { message = $"URL import started: {total} URLs", dryRun, categorized = preview });
+    }
+
+    private static Dictionary<string, object> CategorizeUrls(List<string> urls)
+    {
+        var greenhouse      = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lever           = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ashby           = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var smartRecruiters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var workday         = new Dictionary<string, WorkdayEntry>(StringComparer.OrdinalIgnoreCase);
+        var recruitee       = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var rippling        = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var raw in urls)
+        {
+            var trimmed = raw.Trim();
+            // Allow bare slugs passed alongside URLs — treat as unresolvable, skip
+            if (!Uri.TryCreate(trimmed.StartsWith("http") ? trimmed : "https://" + trimmed,
+                    UriKind.Absolute, out var uri))
+                continue;
+
+            var host = uri.Host.ToLowerInvariant();
+            var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            if (host is "boards.greenhouse.io" or "job-boards.greenhouse.io")
+            {
+                var slug = segments.FirstOrDefault();
+                if (!string.IsNullOrEmpty(slug)) greenhouse.Add(slug.ToLowerInvariant());
+            }
+            else if (host == "jobs.lever.co")
+            {
+                var slug = segments.FirstOrDefault();
+                if (!string.IsNullOrEmpty(slug)) lever.Add(slug.ToLowerInvariant());
+            }
+            else if (host == "jobs.ashbyhq.com")
+            {
+                var slug = segments.FirstOrDefault();
+                if (!string.IsNullOrEmpty(slug)) ashby.Add(slug.ToLowerInvariant());
+            }
+            else if (host is "careers.smartrecruiters.com" or "jobs.smartrecruiters.com")
+            {
+                var slug = segments.FirstOrDefault();
+                if (!string.IsNullOrEmpty(slug)) smartRecruiters.Add(slug.ToLowerInvariant());
+            }
+            else if (host.EndsWith(".myworkdayjobs.com"))
+            {
+                var entry = ExtractWorkdayEntryFromUrl(uri);
+                if (entry != null) workday.TryAdd(entry.Host, entry);
+            }
+            else if (host.EndsWith(".recruitee.com"))
+            {
+                var slug = host[..host.IndexOf(".recruitee.com")];
+                if (!string.IsNullOrEmpty(slug) && slug != "www") recruitee.Add(slug.ToLowerInvariant());
+            }
+            else if (host == "ats.rippling.com")
+            {
+                // Skip locale segments like en-us, en-gb
+                var slug = segments.FirstOrDefault(s =>
+                    !System.Text.RegularExpressions.Regex.IsMatch(s, @"^[a-z]{2}(-[a-z]{2})?$",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+                if (!string.IsNullOrEmpty(slug) && slug != "jobs") rippling.Add(slug.ToLowerInvariant());
+            }
+        }
+
+        var result = new Dictionary<string, object>();
+        if (greenhouse.Count > 0)      result["greenhouse"]      = greenhouse.ToList();
+        if (lever.Count > 0)           result["lever"]           = lever.ToList();
+        if (ashby.Count > 0)           result["ashby"]           = ashby.ToList();
+        if (smartRecruiters.Count > 0) result["smartrecruiters"] = smartRecruiters.ToList();
+        if (workday.Count > 0)         result["workday"]         = workday.Values.ToList();
+        if (recruitee.Count > 0)       result["recruitee"]       = recruitee.ToList();
+        if (rippling.Count > 0)        result["rippling"]        = rippling.ToList();
+        return result;
+    }
+
+    private static WorkdayEntry? ExtractWorkdayEntryFromUrl(Uri uri)
+    {
+        var host = uri.Host.ToLowerInvariant();
+        var subdomain = host[..host.IndexOf(".myworkdayjobs.com")];
+        if (string.IsNullOrEmpty(subdomain) || subdomain == "www") return null;
+
+        var localePattern = new System.Text.RegularExpressions.Regex(@"^[a-z]{2,3}(-[A-Za-z]{2,4})?$");
+        var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var careerSegments = segments
+            .SkipWhile(s => localePattern.IsMatch(s))
+            .TakeWhile(s =>
+                !s.Equals("details", StringComparison.OrdinalIgnoreCase) &&
+                !s.Equals("job", StringComparison.OrdinalIgnoreCase) &&
+                !s.Equals("jobDetails", StringComparison.OrdinalIgnoreCase) &&
+                !s.Contains('.'));
+        var careerSite = string.Join("/", careerSegments);
+
+        return string.IsNullOrEmpty(careerSite) ? null : new WorkdayEntry(host, careerSite);
     }
 
     [HttpPost("slugs")]
@@ -135,8 +281,7 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         return [.. result];
     }
 
-    // Each keyword generates a separate Brave query, surfacing different companies per term
-    private static readonly string[] SearchKeywords =
+    private static readonly string[] RoleKeywords =
     [
         "software engineer", "product manager", "data engineer", "devops", "backend engineer",
         "frontend engineer", "machine learning", "fullstack", "platform engineer", "site reliability",
@@ -145,10 +290,45 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         "cloud architect", "technical program manager", "solutions architect", "ai engineer"
     ];
 
+    private static readonly string[] NicheRoleKeywords =
+    [
+        "staff engineer", "principal engineer", "founding engineer", "distinguished engineer",
+        "embedded systems", "firmware engineer", "hardware engineer", "fpga engineer",
+        "technical writer", "developer advocate", "solutions engineer", "integration engineer",
+        "quantitative researcher", "quant developer", "trading systems", "algorithmic trading",
+        "medical devices", "clinical data", "bioinformatics", "computational biology",
+        "graphics engineer", "rendering engineer", "game engine", "simulation engineer"
+    ];
+
+    private static readonly string[] SeniorityKeywords =
+    [
+        "staff engineer", "principal engineer", "vp engineering", "director of engineering",
+        "ux designer", "product designer", "data analyst", "business analyst",
+        "sales engineer", "customer success", "growth marketing", "technical recruiter",
+        "chief of staff", "head of product", "general counsel"
+    ];
+
+    private static readonly IReadOnlyDictionary<string, string[]> KeywordSets = new Dictionary<string, string[]>
+    {
+        ["roles"]     = RoleKeywords,
+        ["niche"]     = NicheRoleKeywords,
+        ["seniority"] = SeniorityKeywords,
+    };
+
+    private static readonly string[] WorkdayInstances =
+    [
+        "wd1.myworkdayjobs.com",
+        "wd3.myworkdayjobs.com",
+        "wd5.myworkdayjobs.com",
+        "wd12.myworkdayjobs.com",
+    ];
+
     [HttpPost("brave-search")]
     public async Task<IActionResult> DiscoverViaBraveSearch(
         [FromQuery] string? source,
         [FromQuery] bool dryRun = false,
+        [FromQuery] string keywords = "roles",
+        [FromQuery] int maxOffset = 1,
         CancellationToken ct = default)
     {
         var targets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -157,10 +337,18 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
             ["lever"]           = "jobs.lever.co",
             ["ashby"]           = "jobs.ashbyhq.com",
             ["smartrecruiters"] = "jobs.smartrecruiters.com",
+            ["rippling"]        = "ats.rippling.com",
+            ["recruitee"]       = "recruitee.com",
+            ["workday"]         = "myworkdayjobs.com",
         };
 
         if (source != null && !targets.ContainsKey(source))
             return BadRequest(new { error = $"Unknown source '{source}'. Valid: {string.Join(", ", targets.Keys)}" });
+
+        if (!KeywordSets.TryGetValue(keywords, out var activeKeywords))
+            return BadRequest(new { error = $"Unknown keywords '{keywords}'. Valid: {string.Join(", ", KeywordSets.Keys)}" });
+
+        maxOffset = Math.Clamp(maxOffset, 0, 9);
 
         using var scope = scopeFactory.CreateScope();
         var config      = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -182,19 +370,26 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         var existingLever           = await db.Companies.Where(c => c.LeverCompanySlug != null).Select(c => c.LeverCompanySlug!).ToHashSetAsync(ct);
         var existingAshby           = await db.Companies.Where(c => c.AshbyBoardSlug != null).Select(c => c.AshbyBoardSlug!).ToHashSetAsync(ct);
         var existingSmartRecruiters = await db.Companies.Where(c => c.SmartRecruitersSlug != null).Select(c => c.SmartRecruitersSlug!).ToHashSetAsync(ct);
+        var existingRippling        = await db.Companies.Where(c => c.RipplingSlug != null).Select(c => c.RipplingSlug!).ToHashSetAsync(ct);
+        var existingRecruitee       = await db.Companies.Where(c => c.RecruiteeSlug != null).Select(c => c.RecruiteeSlug!).ToHashSetAsync(ct);
+        var existingWorkday         = await db.Companies.Where(c => c.WorkdayHost != null).Select(c => c.WorkdayHost!).ToHashSetAsync(ct);
 
         var summary = new Dictionary<string, object>();
 
         foreach (var (sourceName, domain) in activeSources)
         {
-            var discovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var discovered        = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var discoveredWorkday = new Dictionary<string, WorkdayEntry>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var keyword in SearchKeywords)
+            var searchDomains = sourceName == "workday" ? WorkdayInstances : [domain];
+
+            foreach (var searchDomain in searchDomains)
+            foreach (var keyword in activeKeywords)
             {
                 // Brave caps offset at 9 (10 pages max); use offset 0 and 1 per keyword for variety
-                for (int offset = 0; offset <= 1; offset++)
+                for (int offset = 0; offset <= maxOffset; offset++)
                 {
-                    var q = Uri.EscapeDataString($"site:{domain} {keyword}");
+                    var q = Uri.EscapeDataString($"site:{searchDomain} {keyword}");
                     var url = $"https://api.search.brave.com/res/v1/web/search?q={q}&count=20&offset={offset}&search_lang=en";
 
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -216,9 +411,34 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
                         foreach (var hit in result?.Web?.Results ?? [])
                         {
                             if (!Uri.TryCreate(hit.Url, UriKind.Absolute, out var uri)) continue;
-                            var slug = uri.AbsolutePath.Trim('/').Split('/').FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
-                            if (!string.IsNullOrWhiteSpace(slug))
-                                discovered.Add(slug);
+
+                            if (sourceName == "recruitee")
+                            {
+                                var host = uri.Host.ToLowerInvariant();
+                                if (host.EndsWith(".recruitee.com"))
+                                {
+                                    var slug = host[..host.IndexOf(".recruitee.com")];
+                                    if (!string.IsNullOrEmpty(slug) && slug != "www")
+                                        discovered.Add(slug);
+                                }
+                            }
+                            else if (sourceName == "workday")
+                            {
+                                var entry = ExtractWorkdayEntryFromUrl(uri);
+                                if (entry != null)
+                                    discoveredWorkday.TryAdd(entry.Host, entry);
+                            }
+                            else
+                            {
+                                var segments = uri.AbsolutePath.Trim('/').Split('/')
+                                    .Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
+                                // Rippling URLs may start with a locale segment (en-us, en-gb, etc.) — skip it
+                                var slug = segments.FirstOrDefault(s =>
+                                    !System.Text.RegularExpressions.Regex.IsMatch(s, @"^[a-z]{2}(-[a-z]{2})?$",
+                                        System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+                                if (!string.IsNullOrWhiteSpace(slug))
+                                    discovered.Add(slug);
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -230,12 +450,42 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
                 }
             }
 
+            if (sourceName == "workday")
+            {
+                var newEntries = discoveredWorkday.Values
+                    .Where(e => !existingWorkday.Contains(e.Host)).ToList();
+                logger.LogInformation("BraveSearch [{Source}]: discovered={D} new={N} dryRun={DR}",
+                    sourceName, discoveredWorkday.Count, newEntries.Count, dryRun);
+
+                if (newEntries.Count == 0)
+                {
+                    summary[sourceName] = new { discovered = discoveredWorkday.Count, new_ = 0 };
+                    continue;
+                }
+
+                var discoverResult = await discovery.DiscoverFromSlugsAsync(
+                    [], [], [], [], newEntries, [], dryRun, ct);
+
+                summary[sourceName] = new
+                {
+                    discovered = discoveredWorkday.Count,
+                    new_       = newEntries.Count,
+                    validated  = discoverResult.ValidatedPerSource.GetValueOrDefault("Workday"),
+                    added      = dryRun ? (object)"(dry run)" : discoverResult.Added,
+                    skipped    = discoverResult.Skipped,
+                    failed     = discoverResult.Failed,
+                };
+                continue;
+            }
+
             var existingForSource = sourceName switch
             {
                 "greenhouse"      => existingGreenhouse,
                 "lever"           => existingLever,
                 "ashby"           => existingAshby,
                 "smartrecruiters" => existingSmartRecruiters,
+                "rippling"        => existingRippling,
+                "recruitee"       => existingRecruitee,
                 _                 => []
             };
 
@@ -249,21 +499,24 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
                 continue;
             }
 
-            var discoverResult = await discovery.DiscoverFromSlugsAsync(
+            var discoverResult2 = await discovery.DiscoverFromSlugsAsync(
                 sourceName == "greenhouse"      ? newSlugs : [],
                 sourceName == "lever"           ? newSlugs : [],
                 sourceName == "ashby"           ? newSlugs : [],
                 sourceName == "smartrecruiters" ? newSlugs : [],
-                [], [], dryRun, ct);
+                [],
+                sourceName == "recruitee"       ? newSlugs : [],
+                dryRun, ct,
+                sourceName == "rippling"        ? newSlugs : null);
 
             summary[sourceName] = new
             {
                 discovered = discovered.Count,
                 new_       = newSlugs.Count,
-                validated  = discoverResult.ValidatedPerSource.GetValueOrDefault(ToDisplayName(sourceName)),
-                added      = dryRun ? (object)"(dry run)" : discoverResult.Added,
-                skipped    = discoverResult.Skipped,
-                failed     = discoverResult.Failed,
+                validated  = discoverResult2.ValidatedPerSource.GetValueOrDefault(ToDisplayName(sourceName)),
+                added      = dryRun ? (object)"(dry run)" : discoverResult2.Added,
+                skipped    = discoverResult2.Skipped,
+                failed     = discoverResult2.Failed,
             };
         }
 
@@ -276,6 +529,9 @@ public class CrawlerController(IServiceScopeFactory scopeFactory, ILogger<Crawle
         "lever"           => "Lever",
         "ashby"           => "Ashby",
         "smartrecruiters" => "SmartRecruiters",
+        "rippling"        => "Rippling",
+        "recruitee"       => "Recruitee",
+        "workday"         => "Workday",
         _                 => source
     };
 

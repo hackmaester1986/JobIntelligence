@@ -14,6 +14,8 @@ public class CommonCrawlService(
         "static", "assets", "cdn", "img", "images", "css", "js", "fonts",
         "favicon.ico", "robots.txt", "sitemap.xml", "sitemap", "feed",
         "login", "logout", "signup", "auth", "oauth", "sso",
+        // Rippling locale path segments (Next.js routing artifacts)
+        "en-us", "en-au", "en-ca", "en-gb", "en-ie", "en-in",
     };
 
     private static readonly Dictionary<string, string> SourceDomains = new(StringComparer.OrdinalIgnoreCase)
@@ -24,6 +26,7 @@ public class CommonCrawlService(
         ["smartrecruiters"]  = "careers.smartrecruiters.com",
         ["workday"]          = "*.myworkdayjobs.com",
         ["recruitee"]        = "*.recruitee.com",
+        ["rippling"]         = "ats.rippling.com",
     };
 
     public async Task<CommonCrawlResult> DiscoverSlugsAsync(string? source = null, CancellationToken ct = default)
@@ -39,6 +42,7 @@ public class CommonCrawlService(
         var ashbySlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var smartRecruitersSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var recruiteeSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ripplingSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Keyed by host so we only keep one career site per company host
         var workdayEntries = new Dictionary<string, WorkdayEntry>(StringComparer.OrdinalIgnoreCase);
 
@@ -121,6 +125,18 @@ public class CommonCrawlService(
                 else logger.LogWarning("CDX [recruitee] got 0 results from index {Index}, will try next", indexId);
             }
 
+            if (ShouldCrawl("rippling") && ripplingSlugs.Count == 0)
+            {
+                var rp = await QueryDomainAsync(indexId, "ats.rippling.com", ct);
+                if (rp.Count > 0)
+                {
+                    foreach (var s in rp) ripplingSlugs.Add(s);
+                    anySucceeded = true;
+                    logger.LogInformation("CDX [rippling] succeeded on index {Index}: {Count} slugs", indexId, ripplingSlugs.Count);
+                }
+                else logger.LogWarning("CDX [rippling] got 0 results from index {Index}, will try next", indexId);
+            }
+
             // If nothing returned results from this index, it's likely overloaded — try next immediately
             if (!anySucceeded)
             {
@@ -134,7 +150,8 @@ public class CommonCrawlService(
                 && (!ShouldCrawl("ashby") || ashbySlugs.Count > 0)
                 && (!ShouldCrawl("smartrecruiters") || smartRecruitersSlugs.Count > 0)
                 && (!ShouldCrawl("workday") || workdayEntries.Count > 0)
-                && (!ShouldCrawl("recruitee") || recruiteeSlugs.Count > 0);
+                && (!ShouldCrawl("recruitee") || recruiteeSlugs.Count > 0)
+                && (!ShouldCrawl("rippling") || ripplingSlugs.Count > 0);
 
             if (allDone) break;
 
@@ -142,13 +159,13 @@ public class CommonCrawlService(
         }
 
         logger.LogInformation(
-            "Common Crawl discovery complete: {G} Greenhouse, {L} Lever, {A} Ashby, {SR} SmartRecruiters, {WD} Workday, {RC} Recruitee",
+            "Common Crawl discovery complete: {G} Greenhouse, {L} Lever, {A} Ashby, {SR} SmartRecruiters, {WD} Workday, {RC} Recruitee, {RP} Rippling",
             greenhouseSlugs.Count, leverSlugs.Count, ashbySlugs.Count,
-            smartRecruitersSlugs.Count, workdayEntries.Count, recruiteeSlugs.Count);
+            smartRecruitersSlugs.Count, workdayEntries.Count, recruiteeSlugs.Count, ripplingSlugs.Count);
 
         return new CommonCrawlResult(
             [.. greenhouseSlugs], [.. leverSlugs], [.. ashbySlugs],
-            [.. smartRecruitersSlugs], [.. workdayEntries.Values], [.. recruiteeSlugs]);
+            [.. smartRecruitersSlugs], [.. workdayEntries.Values], [.. recruiteeSlugs], [.. ripplingSlugs]);
     }
 
     private async Task<List<string>> GetRecentIndexesAsync(int count, CancellationToken ct)

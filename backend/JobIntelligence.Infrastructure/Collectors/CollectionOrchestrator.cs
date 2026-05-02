@@ -267,7 +267,7 @@ public class CollectionOrchestrator(
                         (SELECT JSON_AGG(ROW_TO_JSON(departments)) FROM departments)
                     """;
 
-                await using var cmd = new NpgsqlCommand(sql, conn) { CommandTimeout = 180 };
+                await using var cmd = new NpgsqlCommand(sql, conn) { CommandTimeout = 600 };
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 await reader.ReadAsync(ct);
 
@@ -322,6 +322,9 @@ public class CollectionOrchestrator(
                 .ToListAsync(ct),
             "recruitee" => await db.Companies
                 .Where(c => c.RecruiteeSlug != null && c.IsTechHiring != false)
+                .ToListAsync(ct),
+            "rippling" => await db.Companies
+                .Where(c => c.RipplingSlug != null && c.IsTechHiring != false)
                 .ToListAsync(ct),
             _ => []
         };

@@ -64,7 +64,7 @@ public class CompanyDiscoveryService(
                 }
 
                 await ImportCompanyAsync(entry.CanonicalName, normalized, entry.Domain,
-                    validatedGreenhouse, validatedLever, validatedAshby, null, null, null, null, ct);
+                    validatedGreenhouse, validatedLever, validatedAshby, null, null, null, null, null, ct);
                 existing.Add(normalized);
                 added.Add(entry.CanonicalName);
             }
@@ -83,7 +83,8 @@ public class CompanyDiscoveryService(
     public async Task<DiscoveryResult> DiscoverFromSlugsAsync(
         List<string> greenhouseSlugs, List<string> leverSlugs, List<string> ashbySlugs,
         List<string> smartRecruitersSlugs, List<WorkdayEntry> workdayEntries,
-        List<string> recruiteeSlugs, bool dryRun = false, CancellationToken ct = default)
+        List<string> recruiteeSlugs, bool dryRun = false, CancellationToken ct = default,
+        List<string>? ripplingSlugs = null)
     {
         var existing = await db.Companies.Select(c => c.NormalizedName).ToHashSetAsync(ct);
         var added = new List<string>();
@@ -98,6 +99,7 @@ public class CompanyDiscoveryService(
         var smartRecruiters = httpClientFactory.CreateClient("SmartRecruiters");
         var workday = httpClientFactory.CreateClient("Workday");
         var recruitee = httpClientFactory.CreateClient("Recruitee");
+        var rippling = httpClientFactory.CreateClient("Rippling");
 
         foreach (var slug in greenhouseSlugs)
         {
@@ -113,7 +115,7 @@ public class CompanyDiscoveryService(
                     var name = SlugToName(slug);
                     if (!dryRun)
                     {
-                        await ImportCompanyAsync(name, normalized, null, validated, null, null, null, null, null, null, ct);
+                        await ImportCompanyAsync(name, normalized, null, validated, null, null, null, null, null, null, null, ct);
                         existing.Add(normalized);
                     }
                     added.Add(name);
@@ -144,7 +146,7 @@ public class CompanyDiscoveryService(
                     var name = SlugToName(slug);
                     if (!dryRun)
                     {
-                        await ImportCompanyAsync(name, normalized, null, null, validated, null, null, null, null, null, ct);
+                        await ImportCompanyAsync(name, normalized, null, null, validated, null, null, null, null, null, null, ct);
                         existing.Add(normalized);
                     }
                     added.Add(name);
@@ -175,7 +177,7 @@ public class CompanyDiscoveryService(
                     var name = SlugToName(slug);
                     if (!dryRun)
                     {
-                        await ImportCompanyAsync(name, normalized, null, null, null, validated, null, null, null, null, ct);
+                        await ImportCompanyAsync(name, normalized, null, null, null, validated, null, null, null, null, null, ct);
                         existing.Add(normalized);
                     }
                     added.Add(name);
@@ -206,7 +208,7 @@ public class CompanyDiscoveryService(
                     var name = SlugToName(slug);
                     if (!dryRun)
                     {
-                        await ImportCompanyAsync(name, normalized, null, null, null, null, validated, null, null, null, ct);
+                        await ImportCompanyAsync(name, normalized, null, null, null, null, validated, null, null, null, null, ct);
                         existing.Add(normalized);
                     }
                     added.Add(name);
@@ -248,7 +250,7 @@ public class CompanyDiscoveryService(
                     var name = SlugToName(entry.Host.Split('.')[0]);
                     if (!dryRun)
                     {
-                        await ImportCompanyAsync(name, normalized, null, null, null, null, null, validated, entry.CareerSite, null, ct);
+                        await ImportCompanyAsync(name, normalized, null, null, null, null, null, validated, entry.CareerSite, null, null, ct);
                         existing.Add(normalized);
                     }
                     added.Add(name);
@@ -287,7 +289,7 @@ public class CompanyDiscoveryService(
                     var name = SlugToName(slug);
                     if (!dryRun)
                     {
-                        await ImportCompanyAsync(name, normalized, null, null, null, null, null, null, null, validated, ct);
+                        await ImportCompanyAsync(name, normalized, null, null, null, null, null, null, null, validated, null, ct);
                         existing.Add(normalized);
                     }
                     added.Add(name);
@@ -298,6 +300,37 @@ public class CompanyDiscoveryService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to process Recruitee slug {Slug}", slug);
+                failed.Add(slug);
+            }
+
+            await Task.Delay(200, ct);
+        }
+
+        foreach (var slug in ripplingSlugs ?? [])
+        {
+            var normalized = slug.ToLowerInvariant();
+            if (existing.Contains(normalized)) { skipped++; continue; }
+
+            try
+            {
+                var validated = await ValidateRipplingSlug(rippling, slug, ct);
+                if (validated == null) { failed.Add(slug); failedPerSource["Rippling"] = failedPerSource.GetValueOrDefault("Rippling") + 1; }
+                else
+                {
+                    var name = SlugToName(slug);
+                    if (!dryRun)
+                    {
+                        await ImportCompanyAsync(name, normalized, null, null, null, null, null, null, null, null, validated, ct);
+                        existing.Add(normalized);
+                    }
+                    added.Add(name);
+                    validatedPerSource["Rippling"] = validatedPerSource.GetValueOrDefault("Rippling") + 1;
+                    logger.LogInformation("{Action} {Company} (Rippling)", dryRun ? "Validated" : "Imported", name);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to process Rippling slug {Slug}", slug);
                 failed.Add(slug);
             }
 
@@ -330,7 +363,7 @@ public class CompanyDiscoveryService(
         string canonicalName, string normalizedName, string? domain,
         string? greenhouseToken, string? leverSlug, string? ashbySlug,
         string? smartRecruitersSlug, string? workdayHost, string? workdayCareerSite,
-        string? recruiteeSlug, CancellationToken ct)
+        string? recruiteeSlug, string? ripplingSlug, CancellationToken ct)
     {
         db.Companies.Add(new Company
         {
@@ -344,6 +377,7 @@ public class CompanyDiscoveryService(
             WorkdayHost = workdayHost,
             WorkdayCareerSite = workdayCareerSite,
             RecruiteeSlug = recruiteeSlug,
+            RipplingSlug = ripplingSlug,
             FirstSeenAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
@@ -408,6 +442,17 @@ public class CompanyDiscoveryService(
         using var doc = JsonDocument.Parse(json);
         var count = doc.RootElement.TryGetProperty("offers", out var offers) ? offers.GetArrayLength() : 0;
         return count > 0 ? slug : null;
+    }
+
+    private static async Task<string?> ValidateRipplingSlug(
+        HttpClient client, string slug, CancellationToken ct)
+    {
+        var response = await client.GetAsync($"platform/api/ats/v1/board/{slug}/jobs", ct);
+        if (!response.IsSuccessStatusCode) return null;
+        var json = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        // Response is a JSON array; valid if it parses as array with any content (even empty boards accepted)
+        return doc.RootElement.ValueKind == JsonValueKind.Array ? slug : null;
     }
 
     private async Task<string?> ValidateWorkdayTenant(

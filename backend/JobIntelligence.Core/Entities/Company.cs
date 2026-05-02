@@ -12,6 +12,7 @@ public class Company
     public string? WorkableSlug { get; set; }
     public string? SmartRecruitersSlug { get; set; }
     public string? RecruiteeSlug { get; set; }
+    public string? RipplingSlug { get; set; }
     public string? WorkdayHost { get; set; }
     public string? WorkdayCareerSite { get; set; }
     public string? Industry { get; set; }

@@ -30,6 +30,7 @@ public static class DependencyInjection
             DateTime cacheExpiry = DateTime.MinValue;
 
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(configuration.GetConnectionString("DefaultConnection"));
+            dataSourceBuilder.ConnectionStringBuilder.KeepAlive = 30;
             dataSourceBuilder.UseVector();
             dataSourceBuilder.EnableDynamicJson();
             dataSourceBuilder.UsePasswordProvider(
@@ -63,6 +64,7 @@ public static class DependencyInjection
         {
             // Development: full connection string including password in appsettings
             var devDataSourceBuilder = new NpgsqlDataSourceBuilder(configuration.GetConnectionString("DefaultConnection"));
+            devDataSourceBuilder.ConnectionStringBuilder.KeepAlive = 30;
             devDataSourceBuilder.UseVector();
             devDataSourceBuilder.EnableDynamicJson();
             var devDataSource = devDataSourceBuilder.Build();
@@ -93,6 +95,7 @@ public static class DependencyInjection
         services.AddScoped<IJobCollector, SmartRecruitersCollector>();
         services.AddScoped<IJobCollector, WorkdayCollector>();
         services.AddScoped<IJobCollector, RecruiteeCollector>();
+        services.AddScoped<IJobCollector, RipplingCollector>();
         services.AddScoped<ICollectionOrchestrator, CollectionOrchestrator>();
         services.AddScoped<ICompanyDiscoveryService, CompanyDiscoveryService>();
 
@@ -118,6 +121,13 @@ public static class DependencyInjection
 
         services.AddHttpClient("Recruitee", client =>
         {
+            client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
+        services.AddHttpClient("Rippling", client =>
+        {
+            client.BaseAddress = new Uri("https://api.rippling.com/");
             client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0");
             client.Timeout = TimeSpan.FromSeconds(15);
         });

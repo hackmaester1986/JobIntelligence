@@ -3,7 +3,7 @@ namespace JobIntelligence.Core.Interfaces;
 public interface ICompanyDiscoveryService
 {
     Task<DiscoveryResult> DiscoverAndImportAsync(CancellationToken ct = default);
-    Task<DiscoveryResult> DiscoverFromSlugsAsync(List<string> greenhouseSlugs, List<string> leverSlugs, List<string> ashbySlugs, List<string> smartRecruitersSlugs, List<WorkdayEntry> workdayEntries, List<string> recruiteeSlugs, bool dryRun = false, CancellationToken ct = default);
+    Task<DiscoveryResult> DiscoverFromSlugsAsync(List<string> greenhouseSlugs, List<string> leverSlugs, List<string> ashbySlugs, List<string> smartRecruitersSlugs, List<WorkdayEntry> workdayEntries, List<string> recruiteeSlugs, bool dryRun = false, CancellationToken ct = default, List<string>? ripplingSlugs = null);
 }
 
 public record DiscoveryResult(int Added, int Skipped, int Failed,

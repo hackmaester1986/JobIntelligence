@@ -80,7 +80,14 @@ public class GeocodingService(
     private async Task<(double Lat, double Lng)?> GeoNamesLookupAsync(
         string city, string? state, string? countryCode, CancellationToken ct)
     {
-        if (countryCode == null) return null;
+        // Default to US when country is unknown but state is a US state abbreviation
+        if (countryCode == null)
+        {
+            if (!string.IsNullOrWhiteSpace(state) && UsStates.Contains(state.ToUpperInvariant()))
+                countryCode = "US";
+            else
+                return null;
+        }
 
         var query = db.GeonamesCities
             .AsNoTracking()

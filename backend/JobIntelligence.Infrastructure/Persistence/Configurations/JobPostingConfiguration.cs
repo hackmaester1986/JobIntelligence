@@ -77,7 +77,7 @@ public class JobPostingConfiguration : IEntityTypeConfiguration<JobPosting>
         // Partial indexes for dashboard stats query (WHERE is_active = true)
         // Covers counts/seniority/departments CTEs that all filter by company_id + is_active
         builder.HasIndex(x => x.CompanyId)
-            .IncludeProperties(x => new { x.IsRemote, x.IsHybrid, x.FirstSeenAt })
+            .IncludeProperties(x => new { x.IsRemote, x.IsHybrid, x.FirstSeenAt, x.IsUsPosting })
             .HasFilter("is_active = true")
             .HasDatabaseName("IX_job_postings_active_company_id");
 

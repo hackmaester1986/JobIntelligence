@@ -42,6 +42,7 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
 
         builder.Property(x => x.WorkdayHost).HasColumnName("workday_host").HasMaxLength(200);
         builder.Property(x => x.WorkdayCareerSite).HasColumnName("workday_career_site").HasMaxLength(200);
+        builder.Property(x => x.RipplingSlug).HasColumnName("rippling_slug").HasMaxLength(200);
 
         builder.HasIndex(x => x.NormalizedName).IsUnique();
         builder.HasIndex(x => x.GreenhouseBoardToken);

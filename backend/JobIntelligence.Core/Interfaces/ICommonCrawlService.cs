@@ -13,4 +13,5 @@ public record CommonCrawlResult(
     List<string> AshbySlugs,
     List<string> SmartRecruitersSlugs,
     List<WorkdayEntry> WorkdayEntries,
-    List<string> RecruiteeSlugs);
+    List<string> RecruiteeSlugs,
+    List<string> RipplingSlugs);
