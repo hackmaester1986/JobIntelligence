@@ -47,32 +47,35 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
 
         if (isUs == true)
         {
-            var companies = await page_query
-                .GroupJoin(
-                    db.JobPostings.Where(j => j.IsActive && (j.IsUsPosting == true || j.IsUsPosting == null)),
-                    c => c.Id,
-                    j => j.CompanyId,
-                    (c, jobs) => new
-                    {
-                        c.Id,
-                        c.CanonicalName,
-                        c.Industry,
-                        c.EmployeeCountRange,
-                        c.HeadquartersCity,
-                        c.HeadquartersCountry,
-                        c.LogoUrl,
-                        c.ActiveJobCount,
-                        UsJobCount = (int?)jobs.Count(),
-                        c.RemovedJobCount,
-                        c.RemoteJobCount,
-                        c.TotalJobsEverSeen,
-                        c.DuplicateJobCount,
-                        c.AvgJobLifetimeDays,
-                        c.AvgRepostCount,
-                        c.SalaryDisclosureRate,
-                        c.StatsComputedAt
-                    })
-                .ToListAsync(ct);
+            var pagedCompanies = await page_query.ToListAsync(ct);
+            var ids = pagedCompanies.Select(c => c.Id).ToList();
+
+            var usCounts = await db.JobPostings
+                .Where(j => j.IsActive && (j.IsUsPosting == true || j.IsUsPosting == null) && ids.Contains(j.CompanyId))
+                .GroupBy(j => j.CompanyId)
+                .Select(g => new { CompanyId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.CompanyId, x => x.Count, ct);
+
+            var companies = pagedCompanies.Select(c => new
+            {
+                c.Id,
+                c.CanonicalName,
+                c.Industry,
+                c.EmployeeCountRange,
+                c.HeadquartersCity,
+                c.HeadquartersCountry,
+                c.LogoUrl,
+                c.ActiveJobCount,
+                UsJobCount = (int?)usCounts.GetValueOrDefault(c.Id, 0),
+                c.RemovedJobCount,
+                c.RemoteJobCount,
+                c.TotalJobsEverSeen,
+                c.DuplicateJobCount,
+                c.AvgJobLifetimeDays,
+                c.TotalRepostCount, c.RepostRate,
+                c.SalaryDisclosureRate,
+                c.StatsComputedAt
+            }).ToList();
 
             return Ok(new { total, page, pageSize, data = companies });
         }
@@ -95,7 +98,7 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
                     c.TotalJobsEverSeen,
                     c.DuplicateJobCount,
                     c.AvgJobLifetimeDays,
-                    c.AvgRepostCount,
+                    c.TotalRepostCount, c.RepostRate,
                     c.SalaryDisclosureRate,
                     c.StatsComputedAt
                 })
@@ -118,7 +121,7 @@ public class CompaniesController(ApplicationDbContext db) : ControllerBase
                     ? db.JobPostings.Count(j => j.CompanyId == c.Id && j.IsActive && (j.IsUsPosting == true || j.IsUsPosting == null))
                     : (int?)null,
                 c.RemovedJobCount, c.RemoteJobCount, c.TotalJobsEverSeen,
-                c.DuplicateJobCount, c.AvgJobLifetimeDays, c.AvgRepostCount,
+                c.DuplicateJobCount, c.AvgJobLifetimeDays, c.TotalRepostCount, c.RepostRate,
                 c.SalaryDisclosureRate, c.StatsComputedAt
             })
             .FirstOrDefaultAsync(ct);

@@ -37,8 +37,9 @@ public class Company
     public int RemoteJobCount { get; set; }
     public int TotalJobsEverSeen { get; set; }
     public int DuplicateJobCount { get; set; }
+    public int TotalRepostCount { get; set; }
+    public double? RepostRate { get; set; }
     public double? AvgJobLifetimeDays { get; set; }
-    public double? AvgRepostCount { get; set; }
     public double? SalaryDisclosureRate { get; set; }
     public DateTime? StatsComputedAt { get; set; }
 

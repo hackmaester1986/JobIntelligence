@@ -12,8 +12,9 @@ export interface Company {
   remoteJobCount: number;
   totalJobsEverSeen: number;
   duplicateJobCount: number;
+  totalRepostCount: number;
+  repostRate?: number;
   avgJobLifetimeDays?: number;
-  avgRepostCount?: number;
   salaryDisclosureRate?: number;
   statsComputedAt?: string;
 }

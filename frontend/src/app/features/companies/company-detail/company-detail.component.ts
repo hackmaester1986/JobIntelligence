@@ -5,6 +5,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { skip } from 'rxjs/operators';
@@ -19,6 +20,7 @@ import { CompanyHiringChartComponent } from './company-hiring-chart/company-hiri
   imports: [
     NgIf, RouterLink, DecimalPipe, PercentPipe, DatePipe,
     MatCardModule, MatButtonModule, MatButtonToggleModule, MatProgressSpinnerModule,
+    MatTooltipModule,
     CompanyHiringChartComponent
   ],
   templateUrl: './company-detail.component.html',

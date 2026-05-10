@@ -35,8 +35,9 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.Property(x => x.RemoteJobCount).HasColumnName("remote_job_count").HasDefaultValue(0);
         builder.Property(x => x.TotalJobsEverSeen).HasColumnName("total_jobs_ever_seen").HasDefaultValue(0);
         builder.Property(x => x.DuplicateJobCount).HasColumnName("duplicate_job_count").HasDefaultValue(0);
+        builder.Property(x => x.TotalRepostCount).HasColumnName("total_repost_count").HasDefaultValue(0);
+        builder.Property(x => x.RepostRate).HasColumnName("repost_rate");
         builder.Property(x => x.AvgJobLifetimeDays).HasColumnName("avg_job_lifetime_days");
-        builder.Property(x => x.AvgRepostCount).HasColumnName("avg_repost_count");
         builder.Property(x => x.SalaryDisclosureRate).HasColumnName("salary_disclosure_rate");
         builder.Property(x => x.StatsComputedAt).HasColumnName("stats_computed_at");
 

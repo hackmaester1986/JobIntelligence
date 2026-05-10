@@ -76,7 +76,8 @@ export class AnalysisComponent implements OnInit, OnDestroy {
       legend: { display: false },
       tooltip: {
         callbacks: {
-          label: ctx => ` ${(ctx.parsed.y ?? 0).toLocaleString()} companies`
+          label: ctx => ` ${(ctx.parsed.y ?? 0).toLocaleString()} companies`,
+          footer: () => 'Click to view companies'
         }
       }
     },

@@ -23,12 +23,16 @@ public class CompanyStatsService(ApplicationDbContext db) : ICompanyStatsService
                 TotalJobsEverSeen    = g.Count(),
                 AvgJobLifetimeDays   = (double?)g.Where(j => j.RemovedAt != null)
                                          .Average(j => (double?)(j.LastSeenAt - j.FirstSeenAt).TotalDays),
-                AvgRepostCount       = (double?)g.Where(j => j.IsActive)
-                                         .Average(j => (double?)j.RepostCount),
+                RepostRate           = (double?)g.Where(j => j.IsActive)
+                                         .Average(j => j.RepostCount > 0 ? 1.0 : 0.0),
                 SalaryDisclosureRate = (double?)g.Where(j => j.IsActive)
                                          .Average(j => j.SalaryDisclosed ? 1.0 : 0.0),
             })
             .FirstOrDefaultAsync(ct);
+
+        var totalRepostCount = await db.JobPostings
+            .Where(j => j.CompanyId == companyId && j.IsActive && j.RepostCount > 0)
+            .SumAsync(j => (int)j.RepostCount, ct);
 
         var groupCounts = await db.JobPostings
             .Where(j => j.CompanyId == companyId && j.DescriptionHash != null)
@@ -42,8 +46,9 @@ public class CompanyStatsService(ApplicationDbContext db) : ICompanyStatsService
         company.RemoteJobCount       = stats?.RemoteJobCount       ?? 0;
         company.TotalJobsEverSeen    = stats?.TotalJobsEverSeen    ?? 0;
         company.DuplicateJobCount    = duplicateCount;
+        company.TotalRepostCount     = totalRepostCount;
+        company.RepostRate           = stats?.RepostRate;
         company.AvgJobLifetimeDays   = stats?.AvgJobLifetimeDays;
-        company.AvgRepostCount       = stats?.AvgRepostCount;
         company.SalaryDisclosureRate = stats?.SalaryDisclosureRate;
         company.StatsComputedAt      = DateTime.UtcNow;
         // No SaveChangesAsync — caller owns the transaction

@@ -144,7 +144,7 @@ public static class DependencyInjection
         services.AddHttpClient("Wikidata", client =>
         {
             client.DefaultRequestHeaders.Add("User-Agent", "JobIntelligence/1.0 (company enrichment; contact via github)");
-            client.Timeout = TimeSpan.FromSeconds(30);
+            client.Timeout = TimeSpan.FromSeconds(90);
         });
 
         services.AddScoped<IWikidataEnrichmentService, WikidataEnrichmentService>();

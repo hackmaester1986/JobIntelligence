@@ -23,56 +23,81 @@
 
   <h2 class="section-title">Hiring Stats</h2>
   <div class="stats-grid">
-    <mat-card class="stat-card">
+    <mat-card class="stat-card"
+      matTooltip="Job postings currently live on this company's job board."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.activeJobCount }}</div>
         <div class="stat-label">Active Postings</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card">
+    <mat-card class="stat-card"
+      matTooltip="Job postings that have been taken down since we started tracking this company."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.removedJobCount }}</div>
         <div class="stat-label">Removed Postings</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card">
+    <mat-card class="stat-card"
+      matTooltip="Currently active postings listed as fully remote."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.remoteJobCount }}</div>
         <div class="stat-label">Remote Positions</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card">
+    <mat-card class="stat-card"
+      matTooltip="All job postings ever seen for this company, including ones that have since been removed."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.totalJobsEverSeen }}</div>
         <div class="stat-label">Total Jobs Ever Posted</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card">
+    <mat-card class="stat-card"
+      matTooltip="Active postings whose description matches a previously removed listing — indicates the role was reposted."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.duplicateJobCount }}</div>
         <div class="stat-label">Duplicate Postings</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card" *ngIf="c.avgJobLifetimeDays != null">
+    <mat-card class="stat-card" *ngIf="c.avgJobLifetimeDays != null"
+      matTooltip="Average number of days a posting stays active before being removed."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.avgJobLifetimeDays | number:'1.0-1' }}d</div>
         <div class="stat-label">Avg Job Lifetime</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card" *ngIf="c.avgRepostCount != null">
+    <mat-card class="stat-card"
+      matTooltip="Total number of times active job postings have been reposted after a prior removal. High values indicate the company struggles to fill certain roles."
+      matTooltipPosition="above">
       <mat-card-content>
-        <div class="stat-value">{{ c.avgRepostCount | number:'1.0-1' }}</div>
-        <div class="stat-label">Avg Repost Count</div>
+        <div class="stat-value">{{ c.totalRepostCount }}</div>
+        <div class="stat-label">Total Reposts</div>
       </mat-card-content>
     </mat-card>
 
-    <mat-card class="stat-card" *ngIf="c.salaryDisclosureRate != null">
+    <mat-card class="stat-card" *ngIf="c.repostRate != null"
+      matTooltip="Percentage of currently active postings that have been reposted at least once after a prior removal."
+      matTooltipPosition="above">
+      <mat-card-content>
+        <div class="stat-value">{{ c.repostRate | percent:'1.0-0' }}</div>
+        <div class="stat-label">Repost Rate</div>
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="stat-card" *ngIf="c.salaryDisclosureRate != null"
+      matTooltip="Percentage of this company's postings that include salary or compensation information."
+      matTooltipPosition="above">
       <mat-card-content>
         <div class="stat-value">{{ c.salaryDisclosureRate | percent:'1.0-0' }}</div>
         <div class="stat-label">Salary Disclosure Rate</div>

@@ -210,7 +210,8 @@ public class ChatService(AnthropicClient anthropic, ApplicationDbContext db) : I
                 c.TotalJobsEverSeen,
                 c.DuplicateJobCount,
                 c.AvgJobLifetimeDays,
-                c.AvgRepostCount,
+                c.TotalRepostCount,
+                c.RepostRate,
                 c.SalaryDisclosureRate
             })
             .OrderByDescending(x => x.ActiveJobCount)
